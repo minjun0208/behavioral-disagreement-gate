@@ -1,0 +1,85 @@
+{
+  "task_id": "safe_div",
+  "ambiguity_axis": "error_policy",
+  "function_name": "safe_div",
+  "signature": "safe_div(a: float, b: float)",
+  "issue_text": "Implement `safe_div(a: float, b: float)` that divides a by b.",
+  "allowed_imports": [
+    "math"
+  ],
+  "probe": {
+    "generator": "mixed_v2",
+    "boundary_fraction": 0.15,
+    "domain": "a,b in [-100,100] + b==0 boundaries",
+    "args": [
+      {
+        "name": "a",
+        "type": "float",
+        "min": -100,
+        "max": 100,
+        "decimals": 2
+      },
+      {
+        "name": "b",
+        "type": "float",
+        "min": -100,
+        "max": 100,
+        "decimals": 2
+      }
+    ],
+    "boundary_cases": [
+      {
+        "a": 1.0,
+        "b": 0.0
+      },
+      {
+        "a": 0.0,
+        "b": 0.0
+      },
+      {
+        "a": -5.0,
+        "b": 0.0
+      },
+      {
+        "a": 42.0,
+        "b": 0.0
+      }
+    ]
+  },
+  "r_gate": [
+    {
+      "test_id": "tests/test_div.py::test_basic",
+      "args": {
+        "a": 6,
+        "b": 3
+      },
+      "expected": 2.0
+    },
+    {
+      "test_id": "tests/test_div.py::test_frac",
+      "args": {
+        "a": 1,
+        "b": 4
+      },
+      "expected": 0.25
+    },
+    {
+      "test_id": "tests/test_div.py::test_neg",
+      "args": {
+        "a": -9,
+        "b": 3
+      },
+      "expected": -3.0
+    }
+  ],
+  "fixture_candidates": {
+    "c1": {
+      "source": "def safe_div(a: float, b: float):\n    return a / b\n",
+      "agent_tests": []
+    },
+    "c2": {
+      "source": "def safe_div(a: float, b: float):\n    if b == 0:\n        return None\n    return a / b\n",
+      "agent_tests": []
+    }
+  }
+}

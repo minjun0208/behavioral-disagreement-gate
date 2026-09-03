@@ -1,0 +1,10 @@
+{
+"gates": {
+"G2": true,
+"G3": false,
+"G4": true
+},
+"normalizer": {
+"exception_compare": "type"
+}
+}

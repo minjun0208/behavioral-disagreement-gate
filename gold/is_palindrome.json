@@ -1,0 +1,42 @@
+{
+  "note": "placeholder: case-insensitive, ignore non-alnum, empty True",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_case",
+      "args": {
+        "s": "Aba"
+      },
+      "expected": true
+    },
+    {
+      "test_id": "gold/test_spec.py::test_space",
+      "args": {
+        "s": "a b a"
+      },
+      "expected": true
+    },
+    {
+      "test_id": "gold/test_spec.py::test_empty",
+      "args": {
+        "s": ""
+      },
+      "expected": true
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_racecar",
+      "args": {
+        "s": "racecar"
+      },
+      "expected": true
+    },
+    {
+      "test_id": "gold/test_regression_meta.py::test_hello",
+      "args": {
+        "s": "hello"
+      },
+      "expected": false
+    }
+  ]
+}

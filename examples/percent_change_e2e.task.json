@@ -1,0 +1,103 @@
+{
+ "task_id": "percent_change",
+ "ambiguity_axis": "scale_and_zero",
+ "function_name": "percent_change",
+ "signature": "percent_change(old: float, new: float)",
+ "issue_text": "Implement `percent_change(old: float, new: float)` that returns the percentage change from old to new.",
+ "allowed_imports": [
+  "math"
+ ],
+ "probe": {
+  "generator": "mixed_v2",
+  "boundary_fraction": 0.15,
+  "domain": "old,new in [-100,100] + old==0 boundaries",
+  "args": [
+   {
+    "name": "old",
+    "type": "float",
+    "min": -100,
+    "max": 100,
+    "decimals": 1
+   },
+   {
+    "name": "new",
+    "type": "float",
+    "min": -100,
+    "max": 100,
+    "decimals": 1
+   }
+  ],
+  "boundary_cases": [
+   {
+    "old": 0.0,
+    "new": 10.0
+   },
+   {
+    "old": 0.0,
+    "new": 0.0
+   },
+   {
+    "old": 50.0,
+    "new": 100.0
+   },
+   {
+    "old": 100.0,
+    "new": 50.0
+   }
+  ]
+ },
+ "r_gate": [
+  {
+   "test_id": "tests/test_pct.py::test_same",
+   "args": {
+    "old": 100,
+    "new": 100
+   },
+   "expected": 0.0
+  },
+  {
+   "test_id": "tests/test_pct.py::test_same_small",
+   "args": {
+    "old": 7,
+    "new": 7
+   },
+   "expected": 0.0
+  }
+ ],
+ "fixture_rounds": {
+  "1": {
+   "c1": {
+    "source": "def percent_change(old: float, new: float):\n    return (new - old) / old * 100\n",
+    "agent_tests": []
+   },
+   "c2": {
+    "source": "def percent_change(old: float, new: float):\n    return (new - old) / old\n",
+    "agent_tests": []
+   }
+  },
+  "2": {
+   "c1": {
+    "source": "def percent_change(old: float, new: float):\n    return (new - old) / old * 100\n",
+    "agent_tests": []
+   },
+   "c2": {
+    "source": "def percent_change(old: float, new: float):\n    return (new - old) / old\n",
+    "agent_tests": []
+   },
+   "c3": {
+    "source": "def percent_change(old: float, new: float):\n    if old == 0:\n        return None\n    return (new - old) / old * 100\n",
+    "agent_tests": []
+   }
+  },
+  "3": {
+   "c1": {
+    "source": "def percent_change(old: float, new: float):\n    if old == 0:\n        return None\n    return (new - old) / old * 100\n",
+    "agent_tests": []
+   },
+   "c2": {
+    "source": "def percent_change(old: float, new: float):\n    if old == 0:\n        return None\n    return (new - old) * 100 / old\n",
+    "agent_tests": []
+   }
+  }
+ }
+}

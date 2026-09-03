@@ -1,0 +1,119 @@
+{
+  "task_id": "in_range",
+  "ambiguity_axis": "inclusive_boundary",
+  "function_name": "in_range",
+  "signature": "in_range(x: float, lo: float, hi: float) -> bool",
+  "issue_text": "Implement `in_range(x: float, lo: float, hi: float) -> bool` that returns whether x is within the range lo to hi.",
+  "allowed_imports": [
+    "math"
+  ],
+  "probe": {
+    "generator": "mixed_v2",
+    "boundary_fraction": 0.2,
+    "domain": "x,lo,hi in [-100,100] + x==lo/x==hi boundaries",
+    "args": [
+      {
+        "name": "x",
+        "type": "float",
+        "min": -100,
+        "max": 100,
+        "decimals": 2
+      },
+      {
+        "name": "lo",
+        "type": "float",
+        "min": -100,
+        "max": 0,
+        "decimals": 2
+      },
+      {
+        "name": "hi",
+        "type": "float",
+        "min": 0,
+        "max": 100,
+        "decimals": 2
+      }
+    ],
+    "boundary_cases": [
+      {
+        "x": 0.0,
+        "lo": 0.0,
+        "hi": 10.0
+      },
+      {
+        "x": 10.0,
+        "lo": 0.0,
+        "hi": 10.0
+      },
+      {
+        "x": -5.0,
+        "lo": -5.0,
+        "hi": 5.0
+      },
+      {
+        "x": 5.0,
+        "lo": -5.0,
+        "hi": 5.0
+      },
+      {
+        "x": 3.0,
+        "lo": 3.0,
+        "hi": 3.0
+      },
+      {
+        "x": 7.5,
+        "lo": 7.5,
+        "hi": 20.0
+      },
+      {
+        "x": 20.0,
+        "lo": 7.5,
+        "hi": 20.0
+      },
+      {
+        "x": 1.0,
+        "lo": 1.0,
+        "hi": 1.0
+      }
+    ]
+  },
+  "r_gate": [
+    {
+      "test_id": "tests/test_range.py::test_inside",
+      "args": {
+        "x": 5,
+        "lo": 1,
+        "hi": 10
+      },
+      "expected": true
+    },
+    {
+      "test_id": "tests/test_range.py::test_below",
+      "args": {
+        "x": 0,
+        "lo": 1,
+        "hi": 10
+      },
+      "expected": false
+    },
+    {
+      "test_id": "tests/test_range.py::test_above",
+      "args": {
+        "x": 11,
+        "lo": 1,
+        "hi": 10
+      },
+      "expected": false
+    }
+  ],
+  "fixture_candidates": {
+    "c1": {
+      "source": "def in_range(x: float, lo: float, hi: float) -> bool:\n    return lo <= x <= hi\n",
+      "agent_tests": []
+    },
+    "c2": {
+      "source": "def in_range(x: float, lo: float, hi: float) -> bool:\n    return lo <= x < hi\n",
+      "agent_tests": []
+    }
+  }
+}

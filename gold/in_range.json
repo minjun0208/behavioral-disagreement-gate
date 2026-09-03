@@ -1,0 +1,52 @@
+{
+  "note": "placeholder: inclusive both ends",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_lo_edge",
+      "args": {
+        "x": 0.0,
+        "lo": 0.0,
+        "hi": 10.0
+      },
+      "expected": true
+    },
+    {
+      "test_id": "gold/test_spec.py::test_hi_edge",
+      "args": {
+        "x": 10.0,
+        "lo": 0.0,
+        "hi": 10.0
+      },
+      "expected": true
+    },
+    {
+      "test_id": "gold/test_spec.py::test_point",
+      "args": {
+        "x": 3.0,
+        "lo": 3.0,
+        "hi": 3.0
+      },
+      "expected": true
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_mid",
+      "args": {
+        "x": 50,
+        "lo": 0,
+        "hi": 100
+      },
+      "expected": true
+    },
+    {
+      "test_id": "gold/test_regression_meta.py::test_neg_out",
+      "args": {
+        "x": -50,
+        "lo": -10,
+        "hi": -1
+      },
+      "expected": false
+    }
+  ]
+}

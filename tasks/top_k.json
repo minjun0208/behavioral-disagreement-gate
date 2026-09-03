@@ -1,0 +1,122 @@
+{
+  "task_id": "top_k",
+  "ambiguity_axis": "ordering_and_bounds",
+  "function_name": "top_k",
+  "signature": "top_k(xs: list, k: int) -> list",
+  "issue_text": "Implement `top_k(xs: list, k: int) -> list` that returns the k largest values from the list.",
+  "allowed_imports": [
+    "math",
+    "heapq"
+  ],
+  "probe": {
+    "generator": "mixed_v2",
+    "boundary_fraction": 0.2,
+    "domain": "list[int] len 0-8 values [0,9], k 0-10 + k>len/k==0/dupes",
+    "args": [
+      {
+        "name": "xs",
+        "type": "list_int",
+        "min_len": 0,
+        "max_len": 8,
+        "min": 0,
+        "max": 9
+      },
+      {
+        "name": "k",
+        "type": "int",
+        "min": 0,
+        "max": 10
+      }
+    ],
+    "boundary_cases": [
+      {
+        "xs": [
+          3,
+          1,
+          2
+        ],
+        "k": 5
+      },
+      {
+        "xs": [
+          1,
+          2
+        ],
+        "k": 0
+      },
+      {
+        "xs": [],
+        "k": 3
+      },
+      {
+        "xs": [
+          5,
+          5,
+          5
+        ],
+        "k": 2
+      },
+      {
+        "xs": [
+          9,
+          1,
+          9
+        ],
+        "k": 2
+      },
+      {
+        "xs": [
+          4,
+          8
+        ],
+        "k": 2
+      }
+    ]
+  },
+  "r_gate": [
+    {
+      "test_id": "tests/test_topk.py::test_one",
+      "args": {
+        "xs": [
+          1,
+          5,
+          3
+        ],
+        "k": 1
+      },
+      "expected": [
+        5
+      ]
+    },
+    {
+      "test_id": "tests/test_topk.py::test_single",
+      "args": {
+        "xs": [
+          9
+        ],
+        "k": 1
+      },
+      "expected": [
+        9
+      ]
+    },
+    {
+      "test_id": "tests/test_topk.py::test_zero_k_empty",
+      "args": {
+        "xs": [],
+        "k": 0
+      },
+      "expected": []
+    }
+  ],
+  "fixture_candidates": {
+    "c1": {
+      "source": "def top_k(xs: list, k: int) -> list:\n    return sorted(xs, reverse=True)[:k]\n",
+      "agent_tests": []
+    },
+    "c2": {
+      "source": "def top_k(xs: list, k: int) -> list:\n    return sorted(sorted(xs, reverse=True)[:k])\n",
+      "agent_tests": []
+    }
+  }
+}

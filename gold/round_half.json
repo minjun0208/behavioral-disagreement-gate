@@ -1,0 +1,42 @@
+{
+  "note": "placeholder: half-even",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_half_even_2_5",
+      "args": {
+        "x": 2.5
+      },
+      "expected": 2
+    },
+    {
+      "test_id": "gold/test_spec.py::test_half_even_3_5",
+      "args": {
+        "x": 3.5
+      },
+      "expected": 4
+    },
+    {
+      "test_id": "gold/test_spec.py::test_half_even_neg",
+      "args": {
+        "x": -2.5
+      },
+      "expected": -2
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_ten",
+      "args": {
+        "x": 10.0
+      },
+      "expected": 10
+    },
+    {
+      "test_id": "gold/test_regression_meta.py::test_small",
+      "args": {
+        "x": 0.2
+      },
+      "expected": 0
+    }
+  ]
+}

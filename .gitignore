@@ -1,0 +1,14 @@
+runs/
+grades/
+verdicts/
+ledger/
+clarify/
+runs_v1/
+__pycache__/
+*.pyc
+.env
+*.log
+*.zip
+par_test.py
+speed_test.py
+probe_test.py

@@ -1,0 +1,31 @@
+{
+  "note": "placeholder: x100 scale, old==0 -> None",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_double",
+      "args": {
+        "old": 50.0,
+        "new": 100.0
+      },
+      "expected": 100.0
+    },
+    {
+      "test_id": "gold/test_spec.py::test_zero_old",
+      "args": {
+        "old": 0.0,
+        "new": 10.0
+      },
+      "expected": null
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_same_big",
+      "args": {
+        "old": 1000,
+        "new": 1000
+      },
+      "expected": 0.0
+    }
+  ]
+}

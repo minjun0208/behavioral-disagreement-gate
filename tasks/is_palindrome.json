@@ -1,0 +1,87 @@
+{
+  "task_id": "is_palindrome",
+  "ambiguity_axis": "normalization",
+  "function_name": "is_palindrome",
+  "signature": "is_palindrome(s: str) -> bool",
+  "issue_text": "Implement `is_palindrome(s: str) -> bool` that returns whether the string is a palindrome.",
+  "allowed_imports": [
+    "re",
+    "string"
+  ],
+  "probe": {
+    "generator": "mixed_v2",
+    "boundary_fraction": 0.25,
+    "domain": "str len 0-6 over 'abAB ,.' + case/space/punct boundaries",
+    "args": [
+      {
+        "name": "s",
+        "type": "str",
+        "alphabet": "abAB ,.",
+        "min_len": 0,
+        "max_len": 6
+      }
+    ],
+    "boundary_cases": [
+      {
+        "s": ""
+      },
+      {
+        "s": "Aba"
+      },
+      {
+        "s": "a b a"
+      },
+      {
+        "s": "ab,ba"
+      },
+      {
+        "s": "Ab.a"
+      },
+      {
+        "s": "a"
+      },
+      {
+        "s": "AA"
+      },
+      {
+        "s": "a.b"
+      },
+      {
+        "s": " "
+      }
+    ]
+  },
+  "r_gate": [
+    {
+      "test_id": "tests/test_pal.py::test_yes",
+      "args": {
+        "s": "aba"
+      },
+      "expected": true
+    },
+    {
+      "test_id": "tests/test_pal.py::test_no",
+      "args": {
+        "s": "abc"
+      },
+      "expected": false
+    },
+    {
+      "test_id": "tests/test_pal.py::test_one",
+      "args": {
+        "s": "a"
+      },
+      "expected": true
+    }
+  ],
+  "fixture_candidates": {
+    "c1": {
+      "source": "def is_palindrome(s: str) -> bool:\n    return s == s[::-1]\n",
+      "agent_tests": []
+    },
+    "c2": {
+      "source": "def is_palindrome(s: str) -> bool:\n    t = ''.join(ch.lower() for ch in s if ch.isalnum())\n    return t == t[::-1]\n",
+      "agent_tests": []
+    }
+  }
+}

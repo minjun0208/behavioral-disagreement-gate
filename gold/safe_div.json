@@ -1,0 +1,31 @@
+{
+  "note": "placeholder: b==0 -> None",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_zero_none",
+      "args": {
+        "a": 1.0,
+        "b": 0.0
+      },
+      "expected": null
+    },
+    {
+      "test_id": "gold/test_spec.py::test_zero_zero",
+      "args": {
+        "a": 0.0,
+        "b": 0.0
+      },
+      "expected": null
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_ten_two",
+      "args": {
+        "a": 10,
+        "b": 2
+      },
+      "expected": 5.0
+    }
+  ]
+}

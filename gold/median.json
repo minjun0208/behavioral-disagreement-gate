@@ -1,0 +1,41 @@
+{
+  "note": "placeholder: even -> mean of middle two; empty raises",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_even",
+      "args": {
+        "xs": [
+          1,
+          2,
+          3,
+          4
+        ]
+      },
+      "expected": 2.5
+    },
+    {
+      "test_id": "gold/test_spec.py::test_empty",
+      "args": {
+        "xs": []
+      },
+      "expected_exc": "ValueError"
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_seven_odd",
+      "args": {
+        "xs": [
+          9,
+          8,
+          7,
+          6,
+          5,
+          4,
+          3
+        ]
+      },
+      "expected": 6
+    }
+  ]
+}

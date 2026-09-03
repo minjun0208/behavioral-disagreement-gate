@@ -1,0 +1,36 @@
+{
+  "note": "placeholder: empty raises ValueError",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_empty_raises",
+      "args": {
+        "xs": []
+      },
+      "expected_exc": "ValueError"
+    },
+    {
+      "test_id": "gold/test_spec.py::test_neg",
+      "args": {
+        "xs": [
+          -4,
+          -2
+        ]
+      },
+      "expected": -3.0
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_four",
+      "args": {
+        "xs": [
+          10,
+          20,
+          30,
+          40
+        ]
+      },
+      "expected": 25.0
+    }
+  ]
+}

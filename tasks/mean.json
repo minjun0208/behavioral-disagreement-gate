@@ -1,0 +1,95 @@
+{
+  "task_id": "mean",
+  "ambiguity_axis": "empty_input",
+  "function_name": "mean",
+  "signature": "mean(xs: list) -> float",
+  "issue_text": "Implement `mean(xs: list) -> float` that returns the average of a list of numbers.",
+  "allowed_imports": [
+    "math",
+    "statistics"
+  ],
+  "probe": {
+    "generator": "mixed_v2",
+    "boundary_fraction": 0.15,
+    "domain": "list[int] len 0-6, values [-50,50] + empty/single",
+    "args": [
+      {
+        "name": "xs",
+        "type": "list_int",
+        "min_len": 0,
+        "max_len": 6,
+        "min": -50,
+        "max": 50
+      }
+    ],
+    "boundary_cases": [
+      {
+        "xs": []
+      },
+      {
+        "xs": [
+          0
+        ]
+      },
+      {
+        "xs": [
+          7
+        ]
+      },
+      {
+        "xs": [
+          -3,
+          3
+        ]
+      },
+      {
+        "xs": [
+          1,
+          2
+        ]
+      }
+    ]
+  },
+  "r_gate": [
+    {
+      "test_id": "tests/test_mean.py::test_two",
+      "args": {
+        "xs": [
+          2,
+          4
+        ]
+      },
+      "expected": 3.0
+    },
+    {
+      "test_id": "tests/test_mean.py::test_one",
+      "args": {
+        "xs": [
+          5
+        ]
+      },
+      "expected": 5.0
+    },
+    {
+      "test_id": "tests/test_mean.py::test_three",
+      "args": {
+        "xs": [
+          1,
+          2,
+          3
+        ]
+      },
+      "expected": 2.0
+    }
+  ],
+  "fixture_candidates": {
+    "c1": {
+      "source": "def mean(xs: list) -> float:\n    return sum(xs) / len(xs)\n",
+      "agent_tests": []
+    },
+    "c2": {
+      "source": "def mean(xs: list) -> float:\n    if not xs:\n        return 0.0\n    return sum(xs) / len(xs)\n",
+      "agent_tests": []
+    }
+  }
+}

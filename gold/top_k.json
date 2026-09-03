@@ -1,0 +1,50 @@
+{
+  "note": "placeholder: descending, truncate when k>len",
+  "t_meta": [
+    {
+      "test_id": "gold/test_spec.py::test_desc",
+      "args": {
+        "xs": [
+          4,
+          8
+        ],
+        "k": 2
+      },
+      "expected": [
+        8,
+        4
+      ]
+    },
+    {
+      "test_id": "gold/test_spec.py::test_k_gt_len",
+      "args": {
+        "xs": [
+          3,
+          1,
+          2
+        ],
+        "k": 5
+      },
+      "expected": [
+        3,
+        2,
+        1
+      ]
+    }
+  ],
+  "r_meta": [
+    {
+      "test_id": "gold/test_regression_meta.py::test_seven",
+      "args": {
+        "xs": [
+          7,
+          2
+        ],
+        "k": 1
+      },
+      "expected": [
+        7
+      ]
+    }
+  ]
+}
