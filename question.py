@@ -14,7 +14,7 @@ import json
 
 import ledger  # question_hash
 
-QUESTION_VERSION = "0.1.0"
+QUESTION_VERSION = "0.2.0"
 
 
 def canon(obj) -> str:
@@ -71,6 +71,9 @@ def make_question(task: dict, rep: dict, round_no: int, run_id: str) -> dict:
                             "n_distinct": len(set(e["outputs"].values()))} for e in rep["extra_examples"]],
         "n_disagreeing": rep["n_disagreeing"],
         "n_valid_probes": rep["n_valid_probes"],
+        "n_classes": rep.get("n_classes"),
+        "worst_residual": r.get("worst_residual"),
+        "class_groups": r.get("class_groups"),
         "options": options,
         "question_sha256": ledger.question_hash(r["input"], options),
         "question_version": QUESTION_VERSION,
@@ -84,7 +87,8 @@ def render(q: dict) -> str:
         f"[Round {q['round']}] Candidates disagree on:",
         f"    {q['representative']['call']}",
         "",
-        f"Observed results ({q['n_disagreeing']} of {q['n_valid_probes']} probes disagree):",
+        f"Observed results ({q['n_disagreeing']} of {q['n_valid_probes']} probes disagree; "
+        f"{q.get('n_classes')} behavior classes, at most {q.get('worst_residual')} remain after your answer):",
     ]
     for o in q["options"]:
         lines.append(f"    [{o['option_id']}] {o['display']}")
@@ -94,3 +98,17 @@ def render(q: dict) -> str:
             lines.append(f"    {e['call']}")
     lines += ["", "Which behavior is correct?"]
     return "\n".join(lines)
+
+
+def candidates_matching(option: dict, outputs: dict) -> set:
+    """사용자가 고른 관측 선택지에 해당하는 후보 집합 (후속 질문의 생존자). other_*/unknown → 빈 집합."""
+    if option["option_id"] in ("other_value", "other_exception", "unknown"):
+        return set()
+    out = set()
+    for cid, o in outputs.items():
+        if o.startswith("EXC:"):
+            if option["kind"] == "exception" and o[4:].split("(", 1)[0] == option["value"]:
+                out.add(cid)
+        elif option["kind"] == "value" and o == option["value"]:
+            out.add(cid)
+    return out

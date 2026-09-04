@@ -33,7 +33,8 @@ import representative
 import scorer
 from providers import CliAnswerProvider, ScriptedAnswerProvider
 
-LOOP_VERSION = "0.1.0"
+LOOP_VERSION = "0.2.0"
+MAX_QUESTIONS_PER_ROUND = 3
 MAX_PARSE_RETRY = 2
 
 
@@ -150,39 +151,62 @@ def main():
         if verdict["status"] in ("UNVERIFIABLE", "CODE_INCOMPLETE"):
             outcome = verdict["status"]; break
 
-        rep = representative.select(trace, verdict, cfg)
-        q = qmod.make_question(task, rep, r, run_id)
-        (cdir / f"round_{r}.question.json").write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
-        L.append("question", round=r, run_id=run_id, question_id=q["question_id"],
-                 representative=q["representative"], extra_examples=q["extra_examples"],
-                 options=q["options"], question_sha256=q["question_sha256"])
-        if q["question_sha256"] == prev_qhash:
-            outcome = "NO_PROGRESS"; break
-        prev_qhash = q["question_sha256"]
+        # ── 라운드 내 질문 루프: 답 후에도 행동 클래스가 2개 이상 남으면 후속 질문 (최대 3) ──
+        survivors = None            # None = 전체 pool
+        round_first_qhash = None
+        for qi in range(MAX_QUESTIONS_PER_ROUND):
+            rep = representative.select(trace, verdict, cfg, restrict_to=survivors)
+            if rep["representative"] is None:
+                break               # 생존 후보들끼리 더 이상 갈리지 않음
+            q = qmod.make_question(task, rep, r, run_id)
+            q["question_id"] = f"q{r:02d}_{qi + 1}"
+            q["followup_index"] = qi
+            (cdir / f"round_{r}.question_{qi + 1}.json").write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
+            L.append("question", round=r, followup_index=qi, run_id=run_id, question_id=q["question_id"],
+                     representative=q["representative"], extra_examples=q["extra_examples"],
+                     options=q["options"], question_sha256=q["question_sha256"],
+                     n_classes=q.get("n_classes"), worst_residual=q.get("worst_residual"))
+            if qi == 0:
+                round_first_qhash = q["question_sha256"]
 
-        expected, decided = None, False
-        for attempt in range(MAX_PARSE_RETRY + 1):
-            ans = provider.ask(q)
-            expected, perr = answer_to_expected(q, ans)
-            L.append("answer", round=r, question_id=q["question_id"], option_id=ans["option_id"],
-                     answer_kind=(expected or {}).get("kind", "unknown"), raw_input=ans.get("raw_input"),
-                     parsed=(expected if expected else None), parse_error=perr, attempt=attempt)
-            if ans["option_id"] == "unknown":
-                L.append("defer", round=r, question_id=q["question_id"])
-                outcome = "DEFERRED"; break
-            if perr is None and expected is not None:
-                decided = True; break
+            expected, decided, chosen_opt = None, False, None
+            for attempt in range(MAX_PARSE_RETRY + 1):
+                ans = provider.ask(q)
+                expected, perr = answer_to_expected(q, ans)
+                L.append("answer", round=r, question_id=q["question_id"], option_id=ans["option_id"],
+                         answer_kind=(expected or {}).get("kind", "unknown"), raw_input=ans.get("raw_input"),
+                         parsed=(expected if expected else None), parse_error=perr, attempt=attempt)
+                if ans["option_id"] == "unknown":
+                    L.append("defer", round=r, question_id=q["question_id"])
+                    outcome = "DEFERRED"; break
+                if perr is None and expected is not None:
+                    decided = True
+                    chosen_opt = next(o for o in q["options"] if o["option_id"] == ans["option_id"])
+                    break
+                if not args.quiet:
+                    print(f"  ! answer rejected: {perr}")
+            if outcome == "DEFERRED":
+                break
+            if not decided:
+                outcome = "DEFERRED"; L.append("defer", round=r, question_id=q["question_id"], reason="parse failures"); break
+
+            L.append("decision", decision_id=f"d{r:02d}_{qi + 1}", round=r, input=q["representative"]["input"],
+                     expected=expected, question_id=q["question_id"])
+            if L.view()["conflicts"]:
+                outcome = "LEDGER_CONFLICT"; break
+
+            # 생존 후보 = 사용자가 고른 관측 선택지와 같은 출력을 낸 후보. other_* 면 전원 탈락 → 재생성
+            survivors = qmod.candidates_matching(chosen_opt, rep["representative"]["outputs"])
+            remaining_classes = {rep["class_of"][c] for c in survivors}
             if not args.quiet:
-                print(f"  ! answer rejected: {perr}")
-        if outcome == "DEFERRED":
+                print(f"  → survivors={sorted(survivors)} classes_left={len(remaining_classes)}")
+            if len(remaining_classes) < 2:
+                break
+        if outcome in ("DEFERRED", "LEDGER_CONFLICT"):
             break
-        if not decided:
-            outcome = "DEFERRED"; L.append("defer", round=r, question_id=q["question_id"], reason="parse failures"); break
-
-        L.append("decision", decision_id=f"d{r:02d}", round=r, input=q["representative"]["input"],
-                 expected=expected, question_id=q["question_id"])
-        if L.view()["conflicts"]:
-            outcome = "LEDGER_CONFLICT"; break
+        if round_first_qhash is not None and round_first_qhash == prev_qhash:
+            outcome = "NO_PROGRESS"; break
+        prev_qhash = round_first_qhash
     else:
         outcome = "MAX_ROUNDS_EXCEEDED"
 

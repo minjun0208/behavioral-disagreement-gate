@@ -10,17 +10,20 @@ Scorer 는 첫 불일치 probe 하나만 witness 로 낸다. 사람에게 묻기
 - 순수 함수. 같은 trace + 같은 cfg → 같은 대표.
 - 비교 키는 scorer.obs_key 를 그대로 사용 → Scorer 와 "갈림" 정의가 일치.
 
-선택 규칙 (순서대로):
+선택 규칙 (v0.2, 순서대로):
   1. 불일치 probe 집합 D
-  2. complexity_score 최소
-  3. 동률이면 canonical JSON 사전순 최소
+  2. 행동 클래스(전체 출력 벡터가 같은 후보 묶음) 기준으로, 그 probe 의 답 하나로
+     남을 수 있는 클래스 수의 최악값(worst_residual) 최소   ← separating witness
+  3. 동률이면 complexity_score 최소
+  4. 동률이면 canonical JSON 사전순 최소
+restrict_to 로 후보 부분집합만 대상으로 재선택 가능 (라운드 내 후속 질문용).
 """
 import json
 import math
 
 import scorer  # obs_key / normalize 재사용 (Scorer 와 동일한 갈림 정의)
 
-REPRESENTATIVE_VERSION = "0.1.0"
+REPRESENTATIVE_VERSION = "0.2.0"
 
 
 def canon(obj) -> str:
@@ -56,7 +59,7 @@ def input_score(inp: dict) -> float:
 
 
 # ---------------------------------------------------------------------------
-def select(trace: list[dict], verdict: dict, cfg: dict, n_extra: int = 2) -> dict:
+def select(trace: list[dict], verdict: dict, cfg: dict, n_extra: int = 2, restrict_to=None) -> dict:
     """
     반환:
       {
@@ -75,8 +78,12 @@ def select(trace: list[dict], verdict: dict, cfg: dict, n_extra: int = 2) -> dic
     schema_version = int(header.get("trace_schema_version", 1))
 
     cands = sorted(c["candidate_id"] for c in by_kind.get("candidate", []))
-    failing = set((verdict.get("g4") or {}).get("failing_candidates", []))
+    # scorer 와 동일 규칙: G4 게이트가 켜진 verdict 에서만 회귀 실패 후보를 pool 에서 제외
+    g4_on = (verdict.get("gate_cfg") or {}).get("gates", {}).get("G4", True)
+    failing = set((verdict.get("g4") or {}).get("failing_candidates", [])) if g4_on else set()
     pool = [c for c in cands if c not in failing]
+    if restrict_to is not None:
+        pool = [c for c in pool if c in set(restrict_to)]
     probes = {p["probe_id"]: p for p in by_kind.get("probe", [])}
     first = {(o["probe_id"], o["candidate_id"]): o
              for o in by_kind.get("observation", []) if o["repeat_idx"] == 0}
@@ -86,33 +93,49 @@ def select(trace: list[dict], verdict: dict, cfg: dict, n_extra: int = 2) -> dic
             return f"EXC:{o['exception_type']}({o.get('exception_message_raw', '')!r})"
         return o["return_value_raw"]
 
-    disagreeing = []
-    n_valid = 0
+    # 유효 probe (pool 전원 정상 종료) 와 후보별 비교키
+    valid, keys_at = [], {}
     for pid in sorted(probes):
         if not all((pid, c) in first and first[(pid, c)]["exit_code"] == 0 and not first[(pid, c)]["timed_out"] for c in pool):
             continue
-        n_valid += 1
-        keys = {c: scorer.obs_key(first[(pid, c)], ncfg, schema_version) for c in pool}
+        valid.append(pid)
+        keys_at[pid] = {c: scorer.obs_key(first[(pid, c)], ncfg, schema_version) for c in pool}
+    n_valid = len(valid)
+
+    # 행동 클래스: 유효 probe 전체에서 출력 벡터가 같은 후보 묶음
+    vec = {c: canon([canon(keys_at[pid][c]) for pid in valid]) for c in pool}
+    class_of, classes = {}, {}
+    for c in pool:
+        cid = classes.setdefault(vec[c], f"B{len(classes) + 1}")
+        class_of[c] = cid
+    n_classes = len(classes)
+
+    disagreeing = []
+    for pid in valid:
+        keys = keys_at[pid]
         if len(set(keys.values())) > 1:
-            # partition: 어떤 후보들이 같은 답을 냈는지 (모델명 없음, 그룹 구조만)
             groups: dict = {}
             for c, k in keys.items():
                 groups.setdefault(canon(k), []).append(c)
             partition = sorted(tuple(g) for g in groups.values())
+            # 클래스 단위 분할: 같은 클래스는 항상 같은 그룹에 있음
+            class_groups = [sorted({class_of[c] for c in g}) for g in partition]
+            worst_residual = max(len(g) for g in class_groups)
             inp = probes[pid]["input"]
             disagreeing.append({
                 "probe_id": pid, "input": inp,
                 "outputs": {c: show(first[(pid, c)]) for c in pool},
                 "score": input_score(inp), "partition": partition,
+                "class_groups": class_groups, "worst_residual": worst_residual,
             })
 
     if not disagreeing:
         return {"representative": None, "extra_examples": [], "n_disagreeing": 0,
-                "n_valid_probes": n_valid, "pool": pool}
+                "n_valid_probes": n_valid, "pool": pool, "n_classes": n_classes, "class_of": class_of}
 
-    # 같은 입력이 probe 여러 개로 들어올 수 있음 (경계값 + 무작위 중복) → 입력 기준 1개만
+    # 정렬: worst_residual(정보량) → complexity → canon. 같은 입력은 1개만.
     uniq, seen_inputs = [], set()
-    for d in sorted(disagreeing, key=lambda d: (d["score"], canon(d["input"]))):
+    for d in sorted(disagreeing, key=lambda d: (d["worst_residual"], d["score"], canon(d["input"]))):
         k = canon(d["input"])
         if k not in seen_inputs:
             uniq.append(d); seen_inputs.add(k)
@@ -132,4 +155,4 @@ def select(trace: list[dict], verdict: dict, cfg: dict, n_extra: int = 2) -> dic
             extras.append(d)
     return {"representative": rep, "extra_examples": extras, "n_disagreeing": len(disagreeing),
             "n_distinct_inputs": len(ordered),
-            "n_valid_probes": n_valid, "pool": pool}
+            "n_valid_probes": n_valid, "pool": pool, "n_classes": n_classes, "class_of": class_of}
