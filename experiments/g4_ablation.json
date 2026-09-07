@@ -1,0 +1,163 @@
+{
+  "version": "0.1.1",
+  "session_seed": 7,
+  "rows": [
+    {
+      "case": "A_unanimous_violation",
+      "round1_question": "round_half(x=-0.5)",
+      "decision": "round_half(-0.5) == -1",
+      "violators_in_trace": [
+        "c1",
+        "c2",
+        "c3"
+      ],
+      "G4_on": {
+        "status": "CODE_INCOMPLETE",
+        "reasons": [
+          "REGRESSION_FAILURE"
+        ],
+        "pool": [],
+        "violators_in_pool": [],
+        "witness": null,
+        "unsafe_approval": false
+      },
+      "G4_off": {
+        "status": "PASS",
+        "reasons": [],
+        "pool": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "violators_in_pool": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "witness": null,
+        "unsafe_approval": true
+      },
+      "G3_detected_disagreement": false,
+      "G4_detected_violation": true,
+      "G4_only_catch": true
+    },
+    {
+      "case": "B_all_comply",
+      "round1_question": "round_half(x=-0.5)",
+      "decision": "round_half(-0.5) == -1",
+      "violators_in_trace": [],
+      "G4_on": {
+        "status": "PASS",
+        "reasons": [],
+        "pool": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "violators_in_pool": [],
+        "witness": null,
+        "unsafe_approval": false
+      },
+      "G4_off": {
+        "status": "PASS",
+        "reasons": [],
+        "pool": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "violators_in_pool": [],
+        "witness": null,
+        "unsafe_approval": false
+      },
+      "G3_detected_disagreement": false,
+      "G4_detected_violation": false,
+      "G4_only_catch": false
+    },
+    {
+      "case": "C_partial_violation",
+      "round1_question": "round_half(x=-0.5)",
+      "decision": "round_half(-0.5) == -1",
+      "violators_in_trace": [
+        "c3"
+      ],
+      "G4_on": {
+        "status": "PASS",
+        "reasons": [
+          "REGRESSION_FAILURE"
+        ],
+        "pool": [
+          "c1",
+          "c2"
+        ],
+        "violators_in_pool": [],
+        "witness": null,
+        "unsafe_approval": false
+      },
+      "G4_off": {
+        "status": "NEEDS_CLARIFICATION",
+        "reasons": [
+          "BEHAVIORAL_DISAGREEMENT"
+        ],
+        "pool": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "violators_in_pool": [
+          "c3"
+        ],
+        "witness": {
+          "x": -1.5
+        },
+        "unsafe_approval": false
+      },
+      "G3_detected_disagreement": true,
+      "G4_detected_violation": true,
+      "G4_only_catch": false
+    },
+    {
+      "case": "D_unanimous_plus_other",
+      "round1_question": "round_half(x=-0.5)",
+      "decision": "round_half(-0.5) == -1",
+      "violators_in_trace": [
+        "c1",
+        "c2",
+        "c3"
+      ],
+      "G4_on": {
+        "status": "CODE_INCOMPLETE",
+        "reasons": [
+          "REGRESSION_FAILURE"
+        ],
+        "pool": [],
+        "violators_in_pool": [],
+        "witness": null,
+        "unsafe_approval": false
+      },
+      "G4_off": {
+        "status": "NEEDS_CLARIFICATION",
+        "reasons": [
+          "BEHAVIORAL_DISAGREEMENT"
+        ],
+        "pool": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "violators_in_pool": [
+          "c1",
+          "c2",
+          "c3"
+        ],
+        "witness": {
+          "x": 0.5
+        },
+        "unsafe_approval": false
+      },
+      "G3_detected_disagreement": true,
+      "G4_detected_violation": true,
+      "G4_only_catch": false
+    }
+  ]
+}

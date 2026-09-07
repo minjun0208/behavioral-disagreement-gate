@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Behavioral Disagreement Gate</title>
+<link rel="stylesheet" href="app.css">
+<body>
+<div class="wrap" id="app">
+  <div id="hdr"></div>
+
+  <section class="entry">
+    <aside>
+      <span class="k">what this is</span>
+      <span class="v">a completion gate for coding agents</span>
+      <span class="k">track</span>
+      <span class="v">Coding &amp; Agentic Engineering</span>
+      <span class="k">runs on</span>
+      <span class="v">Nebius Token Factory · NVIDIA Nemotron · ConTree sandboxes</span>
+    </aside>
+    <div>
+      <h1>Candidates that behave differently don't get to report success.</h1>
+      <p style="margin-top:1rem">An agent writes several candidate patches. They run in isolated sandbox branches against the same inputs. If any two disagree, completion is withheld and the exact input is returned to the user as a question. The user's answer becomes a versioned acceptance test. Every verdict is computed by deterministic code; the language models only propose and explain.</p>
+      <p class="fine">What a <span class="mono">PASS</span> means here: no counterexample was found in the searched range. It is not a proof of correctness. Ranges that were not searched are marked <span class="unmeasured">like this</span> throughout.</p>
+    </div>
+  </section>
+
+  <section class="entry">
+    <aside>
+      <span class="k">this verdict</span>
+      <span class="v" id="hero-run">—</span>
+      <span class="k">computed</span>
+      <span class="v">in your browser, just now</span>
+    </aside>
+    <div>
+      <h2>The verdict below was not recorded. It was computed when this page loaded.</h2>
+      <p style="margin-top:.6rem">Your browser read the execution trace and scored it with a JavaScript port of the Python scorer. If the port is faithful, the hash of the decision must match the one Python produced — byte for byte.</p>
+      <div class="verdict" id="hero-verdict"><div class="status muted">computing…</div></div>
+      <table id="hero-table"><tbody></tbody></table>
+      <p class="fine" style="margin-top:.8rem">Provenance fields (timestamps, node ids, durations) are excluded from the hash by design; they differ on every run and carry no decision.</p>
+    </div>
+  </section>
+
+  <section class="entry">
+    <aside>
+      <span class="k">sessions</span>
+      <span class="v" id="n-sessions">—</span>
+      <span class="k">outcomes</span>
+      <span class="v">PASS · NEEDS_CLARIFICATION · CODE_INCOMPLETE · UNVERIFIABLE</span>
+    </aside>
+    <div>
+      <h2>Clarification sessions</h2>
+      <p style="margin-top:.6rem">Each session is one task, one user, up to five rounds. Replay any of them; you can pick a different answer than the one recorded and see where the recorded path diverged.</p>
+      <table id="sessions"><thead><tr><th>session</th><th>task</th><th>generation</th><th>rounds</th><th>decisions</th><th>outcome</th></tr></thead><tbody></tbody></table>
+    </div>
+  </section>
+
+  <section class="entry">
+    <aside><span class="k">source</span><span class="v" id="commit">—</span><span class="k">built</span><span class="v" id="built">—</span></aside>
+    <div>
+      <p class="fine">Apache-2.0 · <a href="https://github.com/minjun0208/behavioral-disagreement-gate">github.com/minjun0208/behavioral-disagreement-gate</a> · <a href="test/scorer_test.html">re-score every run in this browser</a></p>
+    </div>
+  </section>
+</div>
+
+<script type="module">
+  import { loadPy, el, header, revealHash, renderVerdict, score, q, short } from "./ui.js";
+  q("#hdr").replaceWith(header("overview"));
+  const idx = await loadPy("data/index.json");
+  q("#commit").textContent = idx.source_commit ?? "working tree";
+  q("#built").textContent = (idx.built_at ?? "").replace("T", " ").slice(0, 16) + " UTC";
+  q("#n-sessions").textContent = String(idx.sessions.length);
+
+  // sessions table
+  const tb = q("#sessions tbody");
+  for (const s of idx.sessions) {
+    tb.append(el("tr", {}, el("td", {}, el("a", { href: `session.html?id=${encodeURIComponent(s.session_id)}` }, s.session_id)),
+      el("td", {}, s.task_id), el("td", {}, s.gen === "llm" ? "3 models" : "fixture"), el("td", { class: "num" }, String(s.rounds_used)),
+      el("td", { class: "num" }, String(s.n_decisions)), el("td", {}, s.outcome)));
+  }
+
+  // hero: prefer a cross-backend group (local + sandbox identical); else first session round 1
+  const prov = await loadPy("data/provenance.json");
+  const cfg = await loadPy("data/cfg_full.json").catch(() => ({}));
+  let runId, trace, pyHash, fn = "f", rows = [];
+  const grp = (prov.cross_backend ?? []).find(g => g.identical) ?? (prov.cross_backend ?? [])[0];
+  if (grp) {
+    runId = grp.runs[0].run_id;
+    // trace for that run lives in a session or cohort file; search sessions first, then cohorts
+    for (const s of idx.sessions) {
+      const sess = await loadPy(`data/sessions/${s.session_id}.json`);
+      const rd = sess.rounds.find(r => grp.runs.some(x => x.run_id === r.run_id));
+      if (rd) { runId = rd.run_id; trace = rd.trace; pyHash = rd.verdict_python.decision_core_sha256; fn = sess.task_id; break; }
+    }
+    if (!trace) {
+      const div = await loadPy("data/experiments/diversity.json");
+      for (const c of Object.values(div.cohorts)) for (const r of c) if (grp.runs.some(x => x.run_id === r.run_id)) { runId = r.run_id; trace = r.trace; pyHash = r.decision_core_sha256; fn = r.task_id; }
+    }
+    rows = grp.runs.map(r => [r.backend, r.core]);
+  }
+  if (!trace) {
+    const s0 = idx.sessions.find(x => x.gen === "llm" && x.outcome === "PASS") ?? idx.sessions.find(x => x.outcome === "PASS") ?? idx.sessions[0];
+    const sess = await loadPy(`data/sessions/${s0.session_id}.json`);
+    const rd = sess.rounds[0]; runId = rd.run_id; trace = rd.trace; pyHash = rd.verdict_python.decision_core_sha256; fn = sess.task_id;
+    rows = [["python scorer (recorded)", pyHash]];
+  }
+  q("#hero-run").textContent = runId;
+  const v = score(trace.map(({ source, ...r }) => r), cfg);
+  q("#hero-verdict").replaceWith(renderVerdict(v, { fn, pyHash: null, showHash: false }));
+
+  const tbody = q("#hero-table tbody");
+  const browserRow = el("tr", {}, el("td", {}, "this browser"), el("td", { class: "hash" }, ""), el("td", {}, ""));
+  tbody.append(browserRow);
+  for (const [name, core] of rows) tbody.append(el("tr", { class: "dim" }, el("td", {}, name), el("td", { class: "hash" }, core), el("td", {}, "")));
+  await revealHash(browserRow.children[1], v.decision_core_sha256);
+  const allSame = rows.every(([, core]) => core === v.decision_core_sha256);
+  browserRow.children[2].append(el("span", { class: allSame ? "measured" : "unmeasured" }, allSame ? `identical across ${rows.length + 1} environments` : "differs — see provenance"));
+</script>
+</body>
+</html>

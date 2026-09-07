@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Provenance — Behavioral Disagreement Gate</title>
+<link rel="stylesheet" href="app.css">
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <section class="entry">
+    <aside><span class="k">principle</span><span class="v">the gate never sees the answer key</span><span class="k">proof</span><span class="v">canary strings, not directory layout</span></aside>
+    <div>
+      <h1 style="font-size:1.6rem">How the system checks itself</h1>
+      <p style="margin-top:.6rem">Three separate programs. The runner executes and records raw observations — never a verdict. The scorer is a pure function of the trace. The grader holds reference tests the gate is not allowed to read, and plants an unpredictable string that must never appear anywhere in the gate's output tree. Every run below was scanned.</p>
+    </div>
+  </section>
+
+  <section class="entry">
+    <aside><span class="k">cross-backend</span><span class="v" id="xb-n">—</span></aside>
+    <div>
+      <h2>Same candidates, different execution environments</h2>
+      <p style="margin:.5rem 0 .8rem">Runs grouped by identical task, job manifest, candidate hashes and probe seed — differing only in where the code ran. The decision hash must not depend on the machine.</p>
+      <div id="xb"></div>
+    </div>
+  </section>
+
+  <section class="entry">
+    <aside><span class="k">canary</span><span class="v" id="can-n">—</span></aside>
+    <div>
+      <h2>Answer-key isolation</h2>
+      <p style="margin:.5rem 0 .8rem">After each run the grader writes a random string into its own directory and searches every file the gate produced. A hit invalidates the run.</p>
+      <div class="scroll"><table id="canary"><thead><tr><th>run</th><th class="num">files scanned</th><th>paths</th><th>result</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+
+  <section class="entry">
+    <aside><span class="k">trace-lite</span><span class="v" id="lite">—</span><span class="k">schemas</span><span class="v" id="schemas">—</span><span class="k">backends</span><span class="v" id="backends">—</span><span class="k">scorer</span><span class="v" id="sv">—</span></aside>
+    <div>
+      <h2>What this site can and cannot show</h2>
+      <p style="margin:.5rem 0 .8rem">The traces served here are stripped of stdout, timestamps and durations to keep them small. The scorer was run on both the full and the stripped trace at build time; the decision hashes matched for every run listed in the margin. Reference tests and their inputs are not served at all — only per-candidate pass counts.</p>
+      <p><a href="test/scorer_test.html">Re-score every run in your browser and compare hashes</a></p>
+      <p class="fine">Execution sandboxes (ConTree) isolate filesystem and process state per branch. Network egress inside the sandbox was measured, not assumed; see the run header field <span class="mono">egress_probe_result</span>. Where it reads <span class="mono">EGRESS_OK</span>, the sandbox had network access.</p>
+    </div>
+  </section>
+</div>
+
+<script type="module">
+  import { loadPy, el, q, header, short } from "./ui.js";
+  q("#hdr").replaceWith(header("provenance"));
+  const p = await loadPy("data/provenance.json");
+
+  const xb = q("#xb");
+  q("#xb-n").textContent = `${p.cross_backend.length} groups`;
+  if (!p.cross_backend.length) xb.append(el("div", { class: "redact-block" }, "no cross-backend pairs in this build — run the same task on --backend local and --backend contree to populate"));
+  for (const g of p.cross_backend) {
+    xb.append(el("p", { class: "fine mono", style: "margin:0 0 .3rem" }, `${g.runs.length} runs · `, el("span", { class: g.identical ? "measured" : "unmeasured" }, g.identical ? "identical" : "differs")),
+      el("div", { class: "scroll", style: "margin-bottom:1rem" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, g.task_id), el("th", {}, "backend"), el("th", {}, "decision_core"))),
+        el("tbody", {}, ...g.runs.map(r => el("tr", {}, el("td", {}, r.run_id), el("td", {}, r.backend), el("td", { class: "hash" }, r.core)))))));
+  }
+
+  const ct = q("#canary tbody");
+  q("#can-n").textContent = `${p.canary_checks.length} checks · ${p.canary_all_clear === null ? "none" : p.canary_all_clear ? "all clear" : "hits present"}`;
+  for (const c of p.canary_checks) ct.append(el("tr", {}, el("td", {}, c.run_id), el("td", { class: "num" }, String(c.files_scanned)), el("td", { class: "fine" }, (c.scanned_paths ?? []).join(" ")),
+    el("td", {}, c.found ? el("span", { class: "unmeasured" }, "canary found — run invalid") : el("span", { class: "measured" }, "clear"))));
+
+  q("#lite").textContent = `${p.lite_equals_full.checked - p.lite_equals_full.mismatch.length} / ${p.lite_equals_full.checked} match`;
+  q("#schemas").textContent = Object.entries(p.trace_schema_versions).map(([k, v]) => `v${k}: ${v}`).join(" · ");
+  q("#backends").textContent = Object.entries(p.backends).map(([k, v]) => `${k}: ${v}`).join(" · ");
+  q("#sv").textContent = p.scorer_version;
+</script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Session replay — Behavioral Disagreement Gate</title>
+<link rel="stylesheet" href="app.css">
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <section class="entry" id="pick">
+    <aside><span class="k">session</span><span class="v" id="sid">—</span></aside>
+    <div id="picker"></div>
+  </section>
+  <div id="rounds"></div>
+  <section class="entry" id="ledger-entry" hidden>
+    <aside><span class="k">ledger</span><span class="v">append-only</span><span class="k">active view</span><span class="v hash" id="avh">—</span></aside>
+    <div>
+      <h2>Ledger</h2>
+      <p class="fine" style="margin-top:.4rem">Decisions are never edited. A change is a new SUPERSEDE or REVOKE record; the active view is folded from the full history.</p>
+      <div class="scroll"><table id="ledger"><thead><tr><th>seq</th><th>kind</th><th>round</th><th>content</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</div>
+
+<script type="module">
+  import { loadPy, el, q, header, renderVerdict, score, makeToggle, openFrom, pressable, fmtInput, modelShort, short, canon } from "./ui.js";
+  q("#hdr").replaceWith(header("sessions"));
+  const idx = await loadPy("data/index.json");
+  const cfgFull = await loadPy("data/cfg_full.json").catch(() => ({}));
+  const params = new URLSearchParams(location.search);
+  let sid = params.get("id") ?? idx.sessions[0]?.session_id;
+
+  // picker
+  const sel = el("select", { onchange: (e) => { location.search = "?id=" + encodeURIComponent(e.target.value); } },
+    ...idx.sessions.map(s => el("option", { value: s.session_id, ...(s.session_id === sid ? { selected: "" } : {}) }, `${s.session_id} — ${s.task_id} — ${s.outcome}`)));
+  sel.style.cssText = "font:inherit;font-family:var(--mono);font-size:.9rem;padding:.3rem .5rem;border:1px solid var(--ink);background:transparent;max-width:100%";
+  q("#picker").append(el("h2", {}, "Replay"), el("p", { style: "margin:.5rem 0 .8rem" }, "Pick a session. Each round is re-scored in this browser; toggle gates to see what would have been approved."), sel);
+  if (!sid) throw new Error("no sessions");
+  q("#sid").textContent = sid;
+
+  const sess = await loadPy(`data/sessions/${sid}.json`);
+  const fn = sess.task_id;
+  const rounds = q("#rounds");
+
+  for (const rd of sess.rounds) {
+    const trace = rd.trace.map(({ source, ...r }) => r);
+    const cands = rd.trace.filter(r => r.kind === "candidate");
+    const gates = { G2: true, G3: true, G4: true };
+    let current = score(trace, cfgFull);
+
+    // --- aside ---
+    const aside = el("aside", {},
+      el("span", { class: "k" }, "round"), el("span", { class: "v" }, String(rd.round)),
+      el("span", { class: "k" }, "run"), el("span", { class: "v" }, rd.run_id),
+      el("span", { class: "k" }, "probe seed"), el("span", { class: "v" }, String(rd.probe_seed), " ", el("span", { class: "muted" }, "fixed before the answer")),
+      el("span", { class: "k" }, "acceptance tests"), el("span", { class: "v" }, String(rd.acceptance_tests.length)),
+      el("span", { class: "k" }, "python verdict"), el("span", { class: "v" }, rd.verdict_python.status),
+      el("span", { class: "k" }, "lite = full"), el("span", { class: "v" }, rd.lite_matches_full ? "yes" : "no"));
+
+    // --- candidates ---
+    const candBlock = el("div", {}, el("h3", {}, `Candidates (${cands.length})`),
+      ...cands.map(c => el("div", { class: "code" },
+        el("div", { class: "who" }, `${c.candidate_id} · ${c.model === "fixture/hardcoded" ? "fixture" : modelShort(c.model)} · ${short(c.patch_hash)}` + (c.branch_uuid ? ` · branch ${short(c.branch_uuid)}` : "")),
+        el("pre", {}, c.source ?? "(source not shipped)"))));
+    if (rd.confirmed_behaviors?.length) candBlock.append(el("p", { class: "fine", style: "margin-top:.4rem" }, "Confirmed behaviors in the prompt: ", el("span", { class: "mono" }, rd.confirmed_behaviors.join("  ·  "))));
+
+    // --- verdict (live) + gate toggles ---
+    const vHost = el("div");
+    const rerender = () => {
+      const cfg = JSON.parse(JSON.stringify(cfgFull)); cfg.gates = { ...gates };
+      try { current = score(trace, cfg); } catch (e) { vHost.replaceChildren(el("div", { class: "redact-block" }, "scorer threw: " + e.message)); return; }
+      const isDefault = gates.G2 && gates.G3 && gates.G4;
+      vHost.replaceChildren(...[renderVerdict(current, { fn, pyHash: isDefault ? rd.verdict_python.decision_core_sha256 : null }),
+        isDefault ? null : el("p", { class: "fine" }, el("span", { class: "unmeasured" }, "non-default gate configuration"), " — no Python reference hash for this configuration; the trace is the same, only the gate set changed.")].filter(Boolean));
+    };
+    const toggles = el("div", { style: "display:flex;gap:1.2rem;flex-wrap:wrap;margin:.4rem 0 .2rem" },
+      ...["G2", "G3", "G4"].map(g => makeToggle(g === "G2" ? "G2 mutation" : g === "G3" ? "G3 disagreement" : "G4 regression", true, (on) => { gates[g] = on; rerender(); })));
+    rerender();
+
+    // --- questions ---
+    const qBlocks = [];
+    const answersByQ = {}; for (const r of sess.ledger) if (r.kind === "answer" && r.parse_error === null) answersByQ[r.question_id] = r;
+    const decisionsByQ = {}; for (const r of sess.ledger) if (r.kind === "decision") decisionsByQ[r.question_id] = r;
+    for (const qq of rd.questions) {
+      const rec = answersByQ[qq.question_id]; const dec = decisionsByQ[qq.question_id];
+      const card = el("div", { class: "question" });
+      const lead = el("div", { class: "lead" }, "Candidates disagree on ", el("span", { class: "call" }, qq.representative.call), ".");
+      const meta = el("div", { class: "fine mono" }, `${qq.n_disagreeing} of ${qq.n_valid_probes} probes disagree` + (qq.n_classes ? ` · ${qq.n_classes} behavior classes · at most ${qq.worst_residual} remain after one answer` : ""));
+      const opts = el("div", { class: "options" });
+      const note = el("p", { class: "fine", style: "margin:.4rem 0 0" });
+      for (const o of qq.options) {
+        const isRecorded = rec && rec.option_id === o.option_id;
+        const b = el("button", { class: "opt", type: "button", "aria-pressed": "false" },
+          el("span", { class: "id" }, o.option_id), el("span", { class: "val" }, o.display), el("span", { class: "note" }, isRecorded ? "recorded answer" : ""));
+        pressable(b);
+        b.addEventListener("click", () => {
+          for (const x of opts.children) x.setAttribute("aria-pressed", "false");
+          b.setAttribute("aria-pressed", "true");
+          if (isRecorded) note.replaceChildren("This is the answer the user gave. ", dec ? el("span", { class: "mono" }, `→ decision ${dec.decision_id}: ${fmtInput(fn, dec.input)} == ${dec.expected.repr ?? ("raises " + dec.expected.type)}`) : "");
+          else note.replaceChildren(el("span", { class: "unmeasured" }, "path not recorded"), " — this session only contains the branch the user actually took. A different answer would have produced a different acceptance test and a different next round.");
+        });
+        opts.append(b);
+      }
+      if (qq.extra_examples?.length) card.append(lead, meta, opts, el("div", { class: "fine mono" }, "also differs at: " + qq.extra_examples.map(e => e.call).join("  ·  ")), note);
+      else card.append(lead, meta, opts, note);
+      qBlocks.push(card);
+      // spatially consistent open on first paint
+      requestAnimationFrame(() => openFrom(card, vHost));
+    }
+
+    // --- acceptance carried into this round ---
+    const acc = rd.acceptance_tests.length ? el("div", {}, el("h3", { style: "margin-top:1rem" }, "Acceptance tests in force"),
+      el("div", { class: "scroll" }, el("table", {}, el("tbody", {}, ...rd.acceptance_tests.map(t => el("tr", {}, el("td", {}, t.test_id), el("td", {}, fmtInput(fn, t.args) + (t.expected_exc ? ` raises ${t.expected_exc}` : ` == ${canon(t.expected)}`)))))))) : null;
+
+    rounds.append(el("section", { class: "entry" }, aside, el("div", {}, candBlock, el("h3", { style: "margin-top:1rem" }, "Verdict"), toggles, vHost, ...qBlocks, acc)));
+  }
+
+  // --- ledger ---
+  q("#ledger-entry").hidden = false;
+  const lt = q("#ledger tbody");
+  const summarize = (r) => {
+    switch (r.kind) {
+      case "session_header": return `task ${r.task_id} · max_rounds ${r.max_rounds} · seed_schedule ${JSON.stringify(r.seed_schedule)} · provider ${r.provider}`;
+      case "question": return `${r.question_id} · ${r.representative.call}`;
+      case "answer": return `${r.question_id} · ${r.option_id}` + (r.raw_input !== null && r.raw_input !== undefined ? ` · raw ${JSON.stringify(r.raw_input)}` : "") + (r.parse_error ? ` · rejected: ${r.parse_error}` : "");
+      case "decision": return `${r.decision_id} · ${fmtInput(fn, r.input)} → ${r.expected.kind === "value" ? r.expected.repr : "raises " + r.expected.type}`;
+      case "supersede": return `${r.target_decision_id} → ${r.new_decision_id}`;
+      case "revoke": return `${r.target_decision_id} · ${r.reason ?? ""}`;
+      case "defer": return `${r.question_id}${r.reason ? " · " + r.reason : ""}`;
+      case "session_footer": return `${r.outcome} · rounds ${r.rounds_used} · active decisions ${r.n_active_decisions}`;
+      default: return "";
+    }
+  };
+  for (const r of sess.ledger) lt.append(el("tr", { class: r.kind === "answer" ? "dim" : "" }, el("td", { class: "num" }, String(r.seq)), el("td", {}, r.kind), el("td", { class: "num" }, r.round ?? ""), el("td", {}, summarize(r))));
+  const foot = sess.ledger.find(r => r.kind === "session_footer");
+  q("#avh").textContent = foot?.active_view_sha256 ? short(foot.active_view_sha256, 16) : "—";
+</script>
+</body>
+</html>

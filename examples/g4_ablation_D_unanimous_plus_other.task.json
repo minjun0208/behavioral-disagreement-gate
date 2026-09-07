@@ -1,0 +1,93 @@
+{
+ "task_id": "round_half",
+ "ambiguity_axis": "tie_policy",
+ "function_name": "round_half",
+ "signature": "round_half(x: float) -> int",
+ "issue_text": "Implement `round_half(x: float) -> int` that rounds a number to the nearest integer.",
+ "allowed_imports": [
+  "math"
+ ],
+ "probe": {
+  "generator": "mixed_v2",
+  "boundary_fraction": 0.2,
+  "domain": "float[-1000,1000] + fixed ties {-2.5..2.5}",
+  "args": [
+   {
+    "name": "x",
+    "type": "float",
+    "min": -1000,
+    "max": 1000,
+    "decimals": 6
+   }
+  ],
+  "boundary_cases": [
+   {
+    "x": -0.5
+   },
+   {
+    "x": -1.5
+   },
+   {
+    "x": -2.5
+   },
+   {
+    "x": 0.5
+   },
+   {
+    "x": 1.5
+   },
+   {
+    "x": 2.5
+   }
+  ]
+ },
+ "r_gate": [
+  {
+   "test_id": "tests/test_rounding.py::test_positive",
+   "args": {
+    "x": 2.0
+   },
+   "expected": 2
+  },
+  {
+   "test_id": "tests/test_rounding.py::test_positive_frac",
+   "args": {
+    "x": 3.7
+   },
+   "expected": 4
+  },
+  {
+   "test_id": "tests/test_rounding.py::test_negative",
+   "args": {
+    "x": -1.2
+   },
+   "expected": -1
+  }
+ ],
+ "fixture_rounds": {
+  "1": {
+   "c1": {
+    "source": "import math\ndef round_half(x: float) -> int:\n    return math.floor(x + 0.5)\n",
+    "agent_tests": []
+   },
+   "c2": {
+    "source": "def round_half(x: float) -> int:\n    return int(x + 0.5) if x >= 0 else int(x - 0.5)\n",
+    "agent_tests": []
+   }
+  },
+  "2": {
+   "c1": {
+    "source": "import math\ndef round_half(x: float) -> int:\n    return math.floor(x + 0.5)\n",
+    "agent_tests": []
+   },
+   "c2": {
+    "source": "def round_half(x: float) -> int:\n    return round(x)\n",
+    "agent_tests": []
+   },
+   "c3": {
+    "source": "import math\ndef round_half(x: float) -> int:\n    return int(math.floor(x + 0.5))\n",
+    "agent_tests": []
+   }
+  }
+ }
+}

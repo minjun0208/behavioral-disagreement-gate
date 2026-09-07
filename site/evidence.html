@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Evidence — Behavioral Disagreement Gate</title>
+<link rel="stylesheet" href="app.css">
+<body>
+<div class="wrap">
+  <div id="hdr"></div>
+  <section class="entry">
+    <aside><span class="k">what is measured</span><span class="v">detection, not correctness</span><span class="k">sample sizes</span><span class="v">shown on every number</span></aside>
+    <div>
+      <h1 style="font-size:1.6rem">Evidence</h1>
+      <p style="margin-top:.6rem">Three experiments, each answering one question the gate depends on. Numbers carry their denominators; cells with fewer than ten samples are marked. Nothing here claims the code was correct — only whether disagreement was detected and whether a confirmed behavior was enforced.</p>
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="div">diversity</button>
+        <button role="tab" aria-selected="false" data-tab="comp">prompt compliance</button>
+        <button role="tab" aria-selected="false" data-tab="abl">G4 ablation</button>
+      </div>
+      <div id="tab-div"></div>
+      <div id="tab-comp" hidden></div>
+      <div id="tab-abl" hidden></div>
+    </div>
+  </section>
+</div>
+
+<script type="module">
+  import { loadPy, el, q, header, score, makeToggle, renderVerdict, modelShort } from "./ui.js";
+  q("#hdr").replaceWith(header("evidence"));
+  const idx = await loadPy("data/index.json");
+  const cfgFull = await loadPy("data/cfg_full.json").catch(() => ({}));
+
+  // tabs
+  for (const b of document.querySelectorAll("[role=tab]")) b.addEventListener("click", () => {
+    for (const x of document.querySelectorAll("[role=tab]")) x.setAttribute("aria-selected", String(x === b));
+    for (const t of ["div", "comp", "abl"]) q(`#tab-${t}`).hidden = (b.dataset.tab !== t);
+  });
+
+  // ---------------- diversity ----------------
+  {
+    const host = q("#tab-div");
+    const div = await loadPy("data/experiments/diversity.json");
+    host.append(el("h2", {}, "Does a set of candidates ever disagree?"),
+      el("p", { style: "margin:.5rem 0 1rem" }, "If all candidates always agree, there is nothing to gate. Cohorts are named by run prefix. A detection is a round that ended in ", el("span", { class: "mono" }, "NEEDS_CLARIFICATION"), "."));
+    const names = { r_llm_: "one model, sampled repeatedly (round_half)", r_xm_: "three models, cross-vendor (round_half)", xt_: "8 tasks × 3 seeds, three models — trace schema v1", v2_: "8 tasks × 3 seeds, three models — trace schema v2 (exceptions preserved)", fx_: "fixture pairs (pipeline check)", fx6_: "fixture pairs, backend v0.6 (pipeline check)" };
+    for (const [pref, s] of Object.entries(div.summary)) {
+      const runs = div.cohorts[pref];
+      const t = el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "task"), el("th", { class: "num" }, "detected / runs"), el("th", {}, "note"))),
+        el("tbody", {}, ...Object.entries(s.by_task).sort().map(([task, [d, n]]) => el("tr", {}, el("td", {}, task), el("td", { class: "num" }, `${d} / ${n}`),
+          el("td", {}, d === 0 ? el("span", { class: "unmeasured" }, "all candidates agreed — nothing to ask") : ""))))));
+      host.append(el("h3", { style: "margin-top:1.2rem" }, `${pref}  `, el("span", { class: "muted", style: "font-weight:400;font-family:var(--serif)" }, names[pref] ?? "")),
+        el("p", { class: "fine mono", style: "margin:.2rem 0 .5rem" }, `${s.detected} / ${s.n_runs} runs detected disagreement`), t);
+    }
+    host.append(el("p", { class: "fine", style: "margin-top:1rem" }, "Baseline measurement (see prompt compliance): with no constraint in the prompt, each of the three models produced a single rounding convention in 10/10, 10/10 and 9/9 generations. Disagreement between candidates comes from differences between models, not from sampling noise within one."));
+  }
+
+  // ---------------- compliance ----------------
+  {
+    const host = q("#tab-comp");
+    let comp = null; try { comp = await loadPy("data/experiments/compliance.json"); } catch (e) {}
+    host.append(el("h2", {}, "Does “MUST hold” in the prompt hold?"),
+      el("p", { style: "margin:.5rem 0 1rem" }, "A confirmed example was placed in the generation prompt as a hard requirement. Each cell: how many of n generations satisfied the example (sat), and how many matched the requested reference policy on ten fixed tie inputs (ref). Satisfying an example does not identify a policy — that gap is the reason the gate asks separating questions."));
+    if (!comp) { host.append(el("div", { class: "redact-block" }, "compliance.json not built")); }
+    else {
+      const models = comp.models;
+      const conds = Object.keys(comp.conditions).filter(c => c !== "none");
+      const heat = (k, n) => { const p = n ? k / n : 0; return el("span", { class: "heat", style: `background:rgba(47,95,216,${(0.08 + 0.55 * p).toFixed(2)});color:${p > 0.55 ? "#fff" : "var(--ink)"}` }, `${k} / ${n}`); };
+      const table = el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "condition"), el("th", {}, "target"), ...models.map(m => el("th", { title: m }, modelShort(m).split("-")[0])))),
+        el("tbody", {}, ...conds.map(cd => el("tr", {}, el("td", {}, cd), el("td", {}, comp.conditions[cd].target ?? "—"),
+          ...models.map(m => { const c = comp.cells[`${cd}|${m}`]; return el("td", { class: "nowrap" }, c ? el("span", {}, "sat ", heat(c.sat, c.n), " · ref ", heat(c.ref, c.n)) : el("span", { class: "unmeasured" }, "not run")); }))))));
+      host.append(el("p", { class: "fine", style: "margin:0 0 .4rem" }, "Cell shade = share of n generations (darker = larger share). Shade is a magnitude, not a grade: a high sat with a low ref is the finding, not a success."), table);
+      // baseline
+      const base = el("div", { class: "scroll", style: "margin-top:1rem" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "no constraint (baseline)"), el("th", {}, "convention distribution"))),
+        el("tbody", {}, ...models.map(m => { const c = comp.cells[`none|${m}`]; return el("tr", {}, el("td", {}, modelShort(m)), el("td", {}, c ? Object.entries(c.conventions).map(([k, v]) => `${k}: ${v}`).join("  ") + `  (n=${c.n})` : "—")); }))));
+      host.append(el("h3", { style: "margin-top:1.2rem" }, "Baseline"), base);
+      host.append(el("p", { class: "fine", style: "margin-top:1rem" }, `n = ${comp.n_ok} generations. With ten per cell, differences smaller than roughly three generations are not resolved; treat 1/10 and 2/10 as “low”, not as different from each other. Aggregate over the six constrained conditions, satisfies-rate: shown per model in the table. Conditions that conflict with a model's baseline convention are where violations concentrate.`));
+    }
+  }
+
+  // ---------------- ablation ----------------
+  {
+    const host = q("#tab-abl");
+    let abl = null; try { abl = await loadPy("data/experiments/ablation.json"); } catch (e) {}
+    host.append(el("h2", {}, "What does G4 catch that G3 cannot?"),
+      el("p", { style: "margin:.5rem 0 1rem" }, "Same frozen candidates, same trace, one gate switched. G3 compares candidates to each other; if every candidate violates a past decision in the same way, they agree and G3 is silent. G4 checks each candidate against the ledger. Toggle G4 and watch case A."));
+    // live re-score from session traces if available, else static rows
+    const sessions = {};
+    for (const s of idx.sessions) if (s.session_id.startsWith("g4_")) sessions[s.session_id] = await loadPy(`data/sessions/${s.session_id}.json`);
+    const rowsHost = el("div");
+    let g4on = true;
+    const render = () => {
+      const rows = []; let anyLive = false;
+      const cases = abl ? abl.rows : Object.keys(sessions).map(k => ({ case: k.replace(/^g4_/, "") }));
+      for (const c of cases) {
+        const sess = sessions[`g4_${c.case}`]; const rd = sess?.rounds?.[1];
+        let v = null, live = false;
+        if (rd) { const cfg = JSON.parse(JSON.stringify(cfgFull)); cfg.gates = { G2: true, G3: true, G4: g4on }; try { v = score(rd.trace.map(({ source, ...r }) => r), cfg); live = true; anyLive = true; } catch (e) {} }
+        const stat = v ? v.status : (g4on ? c.G4_on?.status : c.G4_off?.status);
+        const viol = c.violators_in_trace ?? rd?.verdict_python?.g4?.failing_candidates ?? [];
+        const pool = v ? (v.g4 && g4on ? Object.keys(rd.trace.filter(r => r.kind === "candidate").reduce((a, r) => (a[r.candidate_id] = 1, a), {})).filter(x => !v.g4.failing_candidates.includes(x)) : rd.trace.filter(r => r.kind === "candidate").map(r => r.candidate_id)) : (g4on ? c.G4_on?.pool : c.G4_off?.pool) ?? [];
+        const unsafe = stat === "PASS" && viol.some(x => pool.includes(x));
+        rows.push(el("tr", { class: "transition-redact", style: unsafe ? "background:var(--redact)" : "" },
+          el("td", {}, c.case.replace(/_/g, " ")), el("td", {}, viol.join(", ") || "—"),
+          el("td", { class: "status", style: "font-size:1rem" }, stat ?? "—"),
+          el("td", {}, unsafe ? el("span", { class: "unmeasured" }, "approved with a violating candidate in the pool") : (stat === "PASS" ? "approved, no violators" : "not approved"))));
+      }
+      rowsHost.replaceChildren(el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "case"), el("th", {}, "violators"), el("th", {}, "verdict"), el("th", {}, "meaning"))), el("tbody", {}, ...rows))),
+        el("p", { class: "fine", style: "margin:.4rem 0 0" }, anyLive ? "Every verdict in this table was re-scored in this browser from the session traces." : "Verdicts as recorded at build time."));
+    };
+    const tg = makeToggle("G4 regression gate", true, (on) => { g4on = on; render(); });
+    host.append(el("div", { style: "margin:.4rem 0 .8rem" }, tg), rowsHost);
+    render();
+    host.append(el("h3", { style: "margin-top:1.4rem" }, "How to read this honestly"),
+      el("table", { style: "margin-top:.4rem" }, el("tbody", {},
+        el("tr", {}, el("td", {}, "unique catch (G4 only)"), el("td", {}, "case A: unanimous violation. G3 silent, G4 blocks. Constructed, not observed in the wild yet — its natural frequency is an open measurement.")),
+        el("tr", {}, el("td", {}, "unique harm"), el("td", {}, "case B: all comply. G4 approves both ways. Zero false blocks in this set.")),
+        el("tr", {}, el("td", {}, "overlap"), el("td", {}, "cases C and D: both gates react. Note D — G3 asks about the wrong input; the violation itself is only named by G4.")),
+        el("tr", {}, el("td", {}, "not a claim"), el("td", {}, "“turning G4 off increases PASS” proves nothing on its own; a gate that rejects everything has zero false passes. The claim rests on A and B together.")))));
+  }
+</script>
+</body>
+</html>

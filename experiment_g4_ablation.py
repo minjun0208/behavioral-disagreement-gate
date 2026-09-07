@@ -30,7 +30,7 @@ import sys
 
 import scorer
 
-EXP_VERSION = "0.1.0"
+EXP_VERSION = "0.1.1"
 SESSION_SEED = 7
 PROBE_BUDGET = 40
 
@@ -104,7 +104,8 @@ def main():
         if not pathlib.Path(f"runs/{sid}_r2/trace.jsonl").exists():
             print(f"[{case}] round 2 trace missing\n{p.stdout[-600:]}\n{p.stderr[-600:]}"); continue
 
-        q1 = json.load(open(f"clarify/{sid}/round_1.question.json", encoding="utf-8"))
+        _qs = sorted(pathlib.Path(f"clarify/{sid}").glob("round_1.question*.json"))
+        q1 = json.loads(_qs[0].read_text(encoding="utf-8")) if _qs else {"representative": {"call": "(no question recorded)"}}
         on = score_trace(f"{sid}_r2", "cfg_full.json")
         off = score_trace(f"{sid}_r2", "cfg_no_g4.json")
         viol = violators(f"{sid}_r2")

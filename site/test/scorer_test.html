@@ -1,0 +1,36 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>scorer.js ↔ scorer.py cross-check</title>
+<style>
+  @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap");
+  body{font:14px/1.5 "IBM Plex Mono",ui-monospace,monospace;color:#1a1a17;background:#fbfaf7;margin:2rem;max-width:66ch}
+  .ok{color:#2f5fd8}.bad{color:#1a1a17;background:#e8e4da}
+  table{border-collapse:collapse}td{padding:2px 12px 2px 0;border-bottom:1px solid #d6d3ca}
+</style>
+<h1 style="font-weight:500">scorer.js ↔ scorer.py</h1>
+<p>Every run in <code>site/data</code> is re-scored in this browser. The hash must equal the one Python recorded.</p>
+<p id="sum">loading…</p>
+<table id="t"></table>
+<script type="module">
+  import { score, parsePy } from "../scorer.js";
+  const cfg = parsePy(await (await fetch("../data/cfg_full.json")).text());
+  const idx = parsePy(await (await fetch("../data/index.json")).text());
+  const runs = [];
+  for (const s of idx.sessions) {
+    const sess = parsePy(await (await fetch(`../data/sessions/${s.session_id}.json`)).text());
+    for (const rd of sess.rounds) runs.push({ id: rd.run_id, trace: rd.trace, py: rd.verdict_python });
+  }
+  const div = parsePy(await (await fetch("../data/experiments/diversity.json")).text());
+  for (const c of Object.values(div.cohorts)) for (const r of c) runs.push({ id: r.run_id, trace: r.trace, py: r.verdict_python });
+  let ok = 0; const rows = [];
+  for (const r of runs) {
+    const trace = r.trace.map(({ source, ...rest }) => rest);
+    let v, err = null;
+    try { v = score(trace, cfg); } catch (e) { err = e.message; }
+    const same = !err && v.decision_core_sha256 === r.py.decision_core_sha256 && v.status === r.py.status;
+    ok += same;
+    rows.push(`<tr class="${same ? "ok" : "bad"}"><td>${r.id}</td><td>${err ?? v.status}</td><td>${(err ? "" : v.decision_core_sha256).slice(0, 16)}</td><td>${r.py.decision_core_sha256.slice(0, 16)}</td><td>${same ? "identical" : "MISMATCH"}</td></tr>`);
+  }
+  document.getElementById("sum").innerHTML = `<b>${ok}/${runs.length}</b> runs: browser decision_core_sha256 == Python decision_core_sha256`;
+  document.getElementById("t").innerHTML = rows.join("");
+</script>
