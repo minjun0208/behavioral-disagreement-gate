@@ -17,12 +17,13 @@ import hashlib
 import json
 import pathlib
 import random
-import subprocess
 import sys
 import time
 
-RUNNER_VERSION = "0.5.0"
-TRACE_SCHEMA_VERSION = 2
+from backends import ExecJob, make_backend
+
+RUNNER_VERSION = "0.6.0"
+TRACE_SCHEMA_VERSION = 3
 ENVELOPE = "@@BDG@@"
 EXEC_TIMEOUT_S = 5
 MAX_MUTANTS_PER_CANDIDATE = 8
@@ -80,52 +81,19 @@ class TraceWriter:
 # ---------------------------------------------------------------------------
 # 실행 harness
 # ---------------------------------------------------------------------------
+_compat_backend = None
+
+
 def execute(source: str, fn_name: str, args: dict) -> dict:
-    """후보 소스를 subprocess 에서 실행. 관측 원본만 반환. 해석 없음."""
-    args_json = json.dumps(args)
-    code = (
-        source
-        + "\nimport json as _json\n"
-        + f"_args = _json.loads({json.dumps(args_json)})\n"
-        + "try:\n"
-        + f"    _r = {fn_name}(**_args)\n"
-        + f"    print({ENVELOPE!r} + _json.dumps({{'kind': 'ret', 'repr': repr(_r)}}))\n"
-        + "except Exception as _e:\n"
-        + f"    print({ENVELOPE!r} + _json.dumps({{'kind': 'exc', 'type': type(_e).__name__,\n"
-        + "        'message': str(_e), 'args': [repr(_a) for _a in _e.args]}))\n"
-    )
-    t0 = time.perf_counter()
-    timed_out = False
-    try:
-        p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
-                           timeout=EXEC_TIMEOUT_S)
-        stdout, stderr, rc = p.stdout, p.stderr, p.returncode
-    except subprocess.TimeoutExpired as e:
-        timed_out = True
-        stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
-        stderr = e.stderr.decode() if isinstance(e.stderr, bytes) else (e.stderr or "")
-        rc = -1
-    dur = int((time.perf_counter() - t0) * 1000)
-    # envelope 파싱: 마지막 envelope 줄만 신뢰. 후보가 찍은 print 는 stdout_raw 에 그대로 남음
-    env_line = next((l for l in reversed(stdout.splitlines()) if l.startswith(ENVELOPE)), None)
-    ret_raw, exc_type, exc_msg, exc_args, capture_ok = "", None, None, None, False
-    if env_line is not None:
-        try:
-            env = json.loads(env_line[len(ENVELOPE):])
-            capture_ok = True
-            if env.get("kind") == "ret":
-                ret_raw = env["repr"]
-            else:
-                exc_type, exc_msg, exc_args = env["type"], env["message"], env["args"]
-                ret_raw = "EXC:" + exc_type          # v1 호환 표현 (타입만)
-        except (ValueError, KeyError):
-            capture_ok = False
-    return {"stdout_raw": stdout, "stderr_raw": stderr, "exit_code": rc, "duration_ms": dur,
-            "timed_out": timed_out, "oom": False, "files_written": [],
-            "return_value_raw": ret_raw, "capture_ok": capture_ok,
-            "exception_type": exc_type, "exception_message_raw": exc_msg, "exception_args_raw": exc_args,
-            "stdout_bytes": len(stdout.encode("utf-8")), "stderr_bytes": len(stderr.encode("utf-8")),
-            "output_truncated": False}
+    """호환 래퍼: 단발 실행 (experiment_compliance 등). 내부는 LocalBackend + 공용 harness."""
+    global _compat_backend
+    if _compat_backend is None:
+        _compat_backend = make_backend("local", workers=1)
+    hid = "h_" + sha256(source)[:16]
+    if hid not in _compat_backend.handles:
+        _compat_backend.prepare_candidate(hid, source, fn_name)
+    res = _compat_backend.execute_many([ExecJob(exec_id="compat", handle_id=hid, args=args)], 1)["compat"]
+    return res.as_dict()
 
 
 def expected_repr(t: dict) -> str:
@@ -148,19 +116,18 @@ def values_match(got: str, exp: str) -> bool:
         return False
 
 
-def run_test_suite(source: str, fn_name: str, tests: list) -> tuple[str, int, bool]:
-    """outcome ∈ passed / failed / error / timeout (관측. killed 같은 해석 금지)"""
-    t0 = time.perf_counter()
-    outcome = "passed"
-    for t in tests:
-        obs = execute(source, fn_name, t["args"])
-        if obs["timed_out"]:
+def aggregate_suite(results: list[dict], tests: list) -> tuple[str, int, bool]:
+    """테스트별 실행 결과 → 스위트 outcome. 첫 비정상에서 멈추는 순차 의미론을 그대로 재현."""
+    outcome, dur = "passed", 0
+    for res, t in zip(results, tests):
+        dur += res["duration_ms"]
+        if res["timed_out"]:
             outcome = "timeout"; break
-        if obs["exit_code"] != 0:
+        if res["exit_code"] != 0 or not res.get("capture_ok", True):
             outcome = "error"; break
-        if not values_match(obs["return_value_raw"], expected_repr(t)):
+        if not values_match(res["return_value_raw"], expected_repr(t)):
             outcome = "failed"; break
-    return outcome, int((time.perf_counter() - t0) * 1000), outcome == "timeout"
+    return outcome, dur, outcome == "timeout"
 
 
 # ---------------------------------------------------------------------------
@@ -235,7 +202,11 @@ def main():
     ap.add_argument("--gen-seed", type=int, default=1001)
     ap.add_argument("--diversity", choices=["none", "prompt_jitter"], default="none")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--backend", choices=["local", "contree"], default="local")
+    ap.add_argument("--workers", type=int, default=None, help="local 기본 4, contree 기본 8")
+    ap.add_argument("--image", default="python:3.12-slim", help="contree base image tag")
     args = ap.parse_args()
+    backend = make_backend(args.backend, workers=args.workers, image_tag=args.image)
 
     task_path = pathlib.Path(args.task)
     task_text = task_path.read_text(encoding="utf-8")
@@ -259,14 +230,17 @@ def main():
              trace_schema_version=TRACE_SCHEMA_VERSION,
              task_id=task["task_id"], task_source="local", task_file_hash=sha256(task_text),
              ambiguity_axis=task.get("ambiguity_axis"),
-             base_checkpoint="local:" + sha256(task["issue_text"])[:16],
-             base_source_hash=sha256(""), git_stripped=True, network_blocked=False,
-             execution_env="local_subprocess",
+             base_checkpoint=(backend.header_fields()["base_node_uuid"] and "contree:" + backend.header_fields()["base_node_uuid"])
+                             or ("local:" + sha256(task["issue_text"])[:16]),
+             base_source_hash=sha256(""), git_stripped=True,
+             **backend.header_fields(),
              gate_code_hash=sha256(pathlib.Path(__file__).read_text(encoding="utf-8")),
              runner_version=RUNNER_VERSION, python_version=sys.version.split()[0],
-             generation_mode=args.gen + ("(dry-run)" if args.dry_run else ""))
+             generation_mode=args.gen + ("(dry-run)" if args.dry_run else ""),
+             workers=args.workers or backend.default_workers)
 
-    # --- candidate -----------------------------------------------------------
+    # --- candidate 취득 (기록은 backend.prepare 이후) --------------------------
+    cand_meta = {}
     if args.gen == "llm":
         import llm_gen
         (run_dir / "llm_responses").mkdir(exist_ok=True)
@@ -283,11 +257,11 @@ def main():
             (run_dir / "prompts" / f"{g['prompt_hash']}.txt").write_text(g["prompt_text"], encoding="utf-8")
             rref = f"llm_responses/{cid}.txt"
             (run_dir / rref).write_text(g["response_text"], encoding="utf-8")
-            tw.write("candidate", candidate_id=cid, patch_hash=ph, patch_ref=f"patches/{ph}.diff",
-                     model=g["model"], model_version=g["served_model"], temperature=g["temperature"],
-                     seed=g["seed"], prompt_hash=g["prompt_hash"], prompt_ref=f"prompts/{g['prompt_hash']}.txt",
-                     response_ref=rref, gen_duration_ms=g["gen_duration_ms"],
-                     tokens_in=g["tokens_in"], tokens_out=g["tokens_out"])
+            cand_meta[cid] = dict(patch_hash=ph, patch_ref=f"patches/{ph}.diff", model=g["model"],
+                                  model_version=g["served_model"], temperature=g["temperature"], seed=g["seed"],
+                                  prompt_hash=g["prompt_hash"], prompt_ref=f"prompts/{g['prompt_hash']}.txt",
+                                  response_ref=rref, gen_duration_ms=g["gen_duration_ms"],
+                                  tokens_in=g["tokens_in"], tokens_out=g["tokens_out"])
         for ev in gevents:
             tw.write("infra_event", scope="generation", candidate_id=None, **ev)
     else:
@@ -302,10 +276,23 @@ def main():
         for cid, c in cand_map.items():
             ph = sha256(c["source"])
             (run_dir / "patches" / f"{ph}.diff").write_text(c["source"], encoding="utf-8")
-            tw.write("candidate", candidate_id=cid, patch_hash=ph, patch_ref=f"patches/{ph}.diff",
-                     model="fixture/hardcoded", model_version="n/a", temperature=0.0, seed=0,
-                     prompt_hash=prompt_hash, prompt_ref=f"prompts/{prompt_hash}.txt",
-                     gen_duration_ms=0, tokens_in=0, tokens_out=0)
+            cand_meta[cid] = dict(patch_hash=ph, patch_ref=f"patches/{ph}.diff", model="fixture/hardcoded",
+                                  model_version="n/a", temperature=0.0, seed=0, prompt_hash=prompt_hash,
+                                  prompt_ref=f"prompts/{prompt_hash}.txt", gen_duration_ms=0, tokens_in=0, tokens_out=0)
+
+    # --- backend: 후보 노드 준비 → candidate 기록 (branch_uuid, 소스 해시 검증 포함) ----
+    for cid, c in cand_map.items():
+        try:
+            prep = backend.prepare_candidate(cid, c["source"], fn)
+        except Exception as e:  # noqa: BLE001  — 폴백 없음. 기록하고 중단
+            tw.write("infra_event", event="sandbox_spawn_failed", scope="candidate", candidate_id=cid,
+                     detail=f"{type(e).__name__}: {e}"[:300])
+            tw.write("run_footer", completed=False, n_candidates=len(cand_map), n_probes=0, n_observations=0,
+                     n_mutants=0, wall_clock_ms=int((time.perf_counter() - wall0) * 1000))
+            tw.close()
+            raise SystemExit(f"backend prepare failed for {cid}: {e}")
+        tw.write("candidate", candidate_id=cid, **cand_meta[cid],
+                 branch_uuid=prep["branch_uuid"], source_sha256_verified=prep["source_sha256_verified"])
 
     # --- probe ----------------------------------------------------------------
     probes = gen_probes(task, args.probe_seed, args.probe_budget)
@@ -338,54 +325,88 @@ def main():
     tw.write("job_plan", planned_counts=planned, n_jobs=len(job_ids),
              job_manifest_sha256=sha256("\n".join(sorted(job_ids))), repeats=args.repeats)
 
-    # --- observation ----------------------------------------------------------
-    n_obs = 0
-    for pid, inp in probe_ids:
-        for cid, c in cand_map.items():
-            for r in range(args.repeats):
-                obs = execute(c["source"], fn, inp)
-                tw.write("observation", job_id=f"obs:{pid}:{cid}:{r}",
-                         probe_id=pid, candidate_id=cid, repeat_idx=r, **obs)
-                n_obs += 1
-
-    # --- mutant / mutant_test_result ------------------------------------------
+    # --- mutant 노드 준비 + mutant 기록 --------------------------------------------
     n_mut = 0
     for cid, c in cand_map.items():
-        muts = mut_plan[cid]
-        if not muts:
+        if not mut_plan[cid]:
             tw.write("infra_event", event="zero_applicable_mutants", scope="candidate",
                      candidate_id=cid, detail="no operator applicable")
             continue
-        for j, m in enumerate(muts):
+        for j, m in enumerate(mut_plan[cid]):
             mid = f"{cid}_m{j:02d}"
             n_mut += 1
+            prep = backend.prepare_candidate(mid, m["mutated_source"], fn)
             tw.write("mutant", mutant_id=mid, candidate_id=cid, operator=m["operator"],
                      file=f"{fn}.py", line=m["line"], col=m["col"],
                      original_token=m["original_token"], mutated_token=m["mutated_token"],
-                     in_changed_region=True)
-            for suite, tests in (("base", task["r_gate"]), ("agent", c["agent_tests"])):
-                outcome, dur, to = run_test_suite(m["mutated_source"], fn, tests)
-                tw.write("mutant_test_result", job_id=f"mut:{mid}:{suite}", mutant_id=mid,
-                         candidate_id=cid, suite=suite, outcome=outcome, duration_ms=dur,
-                         timed_out=to, error_type=None)
+                     in_changed_region=True, branch_uuid=prep["branch_uuid"])
 
-    # --- regression_result (R_gate) -------------------------------------------
+    # --- 실행 작업 구성 (exec_id = job_id 또는 job_id#i) ---------------------------
+    jobs, suite_tests = [], {}
+    for pid, inp in probe_ids:
+        for cid in cand_map:
+            for r in range(args.repeats):
+                jobs.append(ExecJob(exec_id=f"obs:{pid}:{cid}:{r}", handle_id=cid, args=inp))
     for cid, c in cand_map.items():
+        for j, m in enumerate(mut_plan[cid]):
+            mid = f"{cid}_m{j:02d}"
+            for suite, tests in (("base", task["r_gate"]), ("agent", c["agent_tests"])):
+                suite_tests[(mid, suite)] = tests
+                for i, t in enumerate(tests):
+                    jobs.append(ExecJob(exec_id=f"mut:{mid}:{suite}#{i}", handle_id=mid, args=t["args"]))
+    for cid in cand_map:
         for t in task["r_gate"]:
-            obs = execute(c["source"], fn, t["args"])
-            if obs["timed_out"]:
-                outcome = "timeout"
-            elif obs["exit_code"] != 0:
-                outcome = "error"
-            elif values_match(obs["return_value_raw"], expected_repr(t)):
-                outcome = "passed"
-            else:
-                outcome = "failed"
-            tw.write("regression_result", job_id=f"reg:{cid}:{t['test_id']}", candidate_id=cid,
-                     suite="R_gate", test_id=t["test_id"], outcome=outcome, duration_ms=obs["duration_ms"])
+            jobs.append(ExecJob(exec_id=f"reg:{cid}:{t['test_id']}", handle_id=cid, args=t["args"]))
 
+    # --- 병렬 실행 (워커는 기록하지 않음) → 단일 writer 가 정해진 순서로 기록 ------------
+    results = backend.execute_many(jobs, args.workers)
+    missing = [j.exec_id for j in jobs if j.exec_id not in results]
+    if missing:
+        tw.write("infra_event", event="sandbox_error", scope="run", candidate_id=None,
+                 detail=f"{len(missing)} exec results missing, e.g. {missing[:3]}")
+
+    n_obs = 0
+    for pid, inp in probe_ids:
+        for cid in cand_map:
+            for r in range(args.repeats):
+                eid = f"obs:{pid}:{cid}:{r}"
+                res = results[eid].as_dict() if eid in results else None
+                if res is None:
+                    continue
+                tw.write("observation", job_id=eid, probe_id=pid, candidate_id=cid, repeat_idx=r, **res)
+                n_obs += 1
+                if res.get("sandbox_error"):
+                    tw.write("infra_event", event=("job_id_mismatch" if not res.get("job_id_echo_ok") and res.get("exit_code") == 0 else "sandbox_error"),
+                             scope="observation", candidate_id=cid, detail=f"{eid}: {res['sandbox_error']}")
+
+    for (mid, suite), tests in suite_tests.items():
+        cid = mid.split("_m")[0]
+        rs = [results[f"mut:{mid}:{suite}#{i}"].as_dict() for i in range(len(tests)) if f"mut:{mid}:{suite}#{i}" in results]
+        outcome, dur, to = aggregate_suite(rs, tests) if len(rs) == len(tests) else ("error", 0, False)
+        tw.write("mutant_test_result", job_id=f"mut:{mid}:{suite}", mutant_id=mid, candidate_id=cid,
+                 suite=suite, outcome=outcome, duration_ms=dur, timed_out=to, error_type=None)
+
+    for cid in cand_map:
+        for t in task["r_gate"]:
+            eid = f"reg:{cid}:{t['test_id']}"
+            res = results[eid].as_dict() if eid in results else None
+            if res is None:
+                outcome, dur = "error", 0
+            elif res["timed_out"]:
+                outcome, dur = "timeout", res["duration_ms"]
+            elif res["exit_code"] != 0 or not res.get("capture_ok", True):
+                outcome, dur = "error", res["duration_ms"]
+            elif values_match(res["return_value_raw"], expected_repr(t)):
+                outcome, dur = "passed", res["duration_ms"]
+            else:
+                outcome, dur = "failed", res["duration_ms"]
+            tw.write("regression_result", job_id=eid, candidate_id=cid, suite="R_gate",
+                     test_id=t["test_id"], outcome=outcome, duration_ms=dur)
+
+    backend.teardown()
     tw.write("run_footer", completed=True, n_candidates=len(cand_map), n_probes=len(probe_ids),
-             n_observations=n_obs, n_mutants=n_mut, wall_clock_ms=int((time.perf_counter() - wall0) * 1000))
+             n_observations=n_obs, n_mutants=n_mut, n_exec_jobs=len(jobs),
+             wall_clock_ms=int((time.perf_counter() - wall0) * 1000))
     tw.close()
     print(f"run_id={run_id}")
     print(f"task={task['task_id']}")
