@@ -3,6 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Provenance — Behavioral Disagreement Gate</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="app.css">
 <body>
 <div class="wrap">
@@ -53,8 +54,8 @@
   q("#xb-n").textContent = `${p.cross_backend.length} groups`;
   if (!p.cross_backend.length) xb.append(el("div", { class: "redact-block" }, "no cross-backend pairs in this build — run the same task on --backend local and --backend contree to populate"));
   for (const g of p.cross_backend) {
-    xb.append(el("p", { class: "fine mono", style: "margin:0 0 .3rem" }, `${g.runs.length} runs · `, el("span", { class: g.identical ? "measured" : "unmeasured" }, g.identical ? "identical" : "differs")),
-      el("div", { class: "scroll", style: "margin-bottom:1rem" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, g.task_id), el("th", {}, "backend"), el("th", {}, "decision_core"))),
+    xb.append(el("p", { class: "fine mono", style: "margin:0 0 .3rem" }, `task ${g.task_id} · ${g.runs.length} runs · `, el("span", { class: g.identical ? "measured" : "unmeasured" }, g.identical ? "identical" : "differs")),
+      el("div", { class: "scroll", style: "margin-bottom:1rem" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "run"), el("th", {}, "backend"), el("th", {}, "decision_core"))),
         el("tbody", {}, ...g.runs.map(r => el("tr", {}, el("td", {}, r.run_id), el("td", {}, r.backend), el("td", { class: "hash" }, r.core)))))));
   }
 

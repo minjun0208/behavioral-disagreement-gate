@@ -1,6 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <title>scorer.js ↔ scorer.py cross-check</title>
+<link rel="icon" href="data:,">
 <style>
   @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap");
   body{font:14px/1.5 "IBM Plex Mono",ui-monospace,monospace;color:#1a1a17;background:#fbfaf7;margin:2rem;max-width:66ch}
@@ -10,7 +11,7 @@
 <h1 style="font-weight:500">scorer.js ↔ scorer.py</h1>
 <p>Every run in <code>site/data</code> is re-scored in this browser. The hash must equal the one Python recorded.</p>
 <p id="sum">loading…</p>
-<table id="t"></table>
+<div style="overflow-x:auto"><table id="t"></table></div>
 <script type="module">
   import { score, parsePy } from "../scorer.js";
   const cfg = parsePy(await (await fetch("../data/cfg_full.json")).text());
@@ -22,6 +23,11 @@
   }
   const div = parsePy(await (await fetch("../data/experiments/diversity.json")).text());
   for (const c of Object.values(div.cohorts)) for (const r of c) runs.push({ id: r.run_id, trace: r.trace, py: r.verdict_python });
+  if (idx.has_crossbackend) {   // the exact trace index.html re-scores
+    const xb = parsePy(await (await fetch("../data/crossbackend.json")).text());
+    const rec = xb.runs.find(r => r.run_id === xb.trace_run_id);
+    runs.push({ id: `${xb.trace_run_id} (crossbackend.json)`, trace: xb.trace, py: { decision_core_sha256: rec.decision_core_sha256, status: rec.status } });
+  }
   let ok = 0; const rows = [];
   for (const r of runs) {
     const trace = r.trace.map(({ source, ...rest }) => rest);

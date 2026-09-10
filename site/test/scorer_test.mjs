@@ -31,6 +31,11 @@ for (const s of index.sessions) {
 }
 const div = parsePy(fs.readFileSync(path.join(dataDir, "experiments", "diversity.json"), "utf-8"));
 for (const cohort of Object.values(div.cohorts)) for (const r of cohort) runs.push({ id: r.run_id, trace: r.trace, py: r.verdict_python });
+if (index.has_crossbackend) {   // index.html 히어로가 재채점하는 바로 그 trace (crossbackend.json)
+  const xb = parsePy(fs.readFileSync(path.join(dataDir, "crossbackend.json"), "utf-8"));
+  const rec = xb.runs.find(r => r.run_id === xb.trace_run_id);
+  runs.push({ id: `${xb.trace_run_id} (crossbackend.json)`, trace: xb.trace, py: { decision_core_sha256: rec.decision_core_sha256, status: rec.status } });
+}
 
 let ok = 0; const bad = [];
 for (const r of runs) {

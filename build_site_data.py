@@ -10,6 +10,8 @@ build_site_data.py — 사이트 데이터 빌드  (v0.1.0)
         experiments/ablation.json   G4 paired ablation
         experiments/diversity.json  run 코호트별 감지율 (예: v2_*, xt_*)
         provenance.json             canary 검사 / 백엔드 교차 decision_core 일치 / 스키마 버전 분포
+        crossbackend.json           index.html 히어로용: 백엔드 교차 그룹 하나 (run 별 verdict + 브라우저가 재채점할 trace 하나).
+                                    그룹이 없으면 파일을 만들지 않고 index.json 에 has_crossbackend:false 로 표시.
 
 trace-lite: 원본 trace 에서 표시·판정에 불필요한 무거운 필드만 제거.
   제거: stdout_raw stderr_raw ts duration_ms files_written stdout_bytes stderr_bytes output_truncated
@@ -31,7 +33,7 @@ import sys
 
 import scorer
 
-BUILD_VERSION = "0.2.0"
+BUILD_VERSION = "0.3.0"
 SITE_SCHEMA = 1
 STRIP = {"stdout_raw", "stderr_raw", "ts", "duration_ms", "files_written", "stdout_bytes", "stderr_bytes",
          "output_truncated", "oom", "gen_duration_ms", "tokens_in", "tokens_out", "prompt_ref", "response_ref",
@@ -208,6 +210,42 @@ def build_provenance(roots: dict, all_lite: list[tuple[str, list, dict]]) -> dic
             "trace_schema_versions": dict(schema_dist), "backends": dict(backend_dist), "scorer_version": scorer.SCORER_VERSION}
 
 
+def build_crossbackend(cross: list[dict], all_lite: list[tuple[str, list, dict]], cfg: dict,
+                       report: list[tuple[str, bool]]) -> dict | None:
+    """index.html 히어로용 데이터: cross_backend 그룹 하나 + 그 그룹에서 브라우저가 재채점할 trace 하나.
+
+    그룹 선택 규칙 (결정론적):
+      1. identical 인 그룹 우선 — 백엔드가 달라도 decision_core 가 같은 그룹이 이 사이트의 가장 강한 증거다.
+      2. 그다음 그룹의 가장 앞선 run_id (사전순) 가 작은 그룹.
+      3. 그다음 task_id 사전순.
+    trace 선택 규칙 (그룹 안에서):
+      1. backend 가 local_subprocess 가 아닌 run 우선 — 독자가 자기 기계에서 재현할 수 없는 환경(샌드박스)에서
+         기록된 trace 를 브라우저가 다시 채점하는 쪽이 더 강한 검사다.
+      2. 그다음 run_id 사전순.
+    trace 는 scorer 입력 형태(trace-lite 에서 candidate source 만 제거)로 하나만 싣는다. 히어로는 소스를 표시하지 않고,
+    세 run 의 trace 를 다 실으면 파일이 세 배가 된다. 싣는 바로 그 바이트를 다시 채점해 기록된 해시와 같은지 확인한다.
+    """
+    if not cross:
+        return None
+    g = min(cross, key=lambda g: (0 if g["identical"] else 1, min(r["run_id"] for r in g["runs"]), g["task_id"] or ""))
+    runs = sorted(g["runs"], key=lambda r: r["run_id"])
+    pick = min(runs, key=lambda r: (0 if r["backend"] != "local_subprocess" else 1, r["run_id"]))
+    lite = next(l for rid, l, _ in all_lite if rid == pick["run_id"])
+    trace = [{k: v for k, v in x.items() if k != "source"} for x in lite]
+    lite_ok = next((ok for rid, ok in report if rid == pick["run_id"]), None)
+    if lite_ok is not True:
+        raise RuntimeError(f"crossbackend trace {pick['run_id']} did not pass lite==full ({lite_ok})")
+    rescored = scorer.score(trace, cfg)["decision_core_sha256"]
+    if rescored != pick["core"]:
+        raise RuntimeError(f"crossbackend trace re-score mismatch for {pick['run_id']}: {rescored[:12]} != {pick['core'][:12]}")
+    return {"task_id": g["task_id"], "identical": g["identical"], "backends": sorted({r["backend"] for r in runs}),
+            "runs": [{"run_id": r["run_id"], "backend": r["backend"], "decision_core_sha256": r["core"], "status": r["status"]} for r in runs],
+            "trace_run_id": pick["run_id"], "trace_backend": pick["backend"], "trace": trace, "lite_matches_full": True,
+            "trace_fields": "trace-lite minus candidate source (exactly the scorer's input)",
+            "selection": {"group": "identical first, then smallest run_id, then task_id",
+                          "trace": "non-local backend first, then smallest run_id"}}
+
+
 # ---------------------------------------------------------------------------
 def leak_scan(out_root: pathlib.Path, grades_root: pathlib.Path) -> list[str]:
     """출력 전체에서 canary 문자열·gold 테스트 식별자 검색. 하나라도 있으면 빌드 실패."""
@@ -295,6 +333,13 @@ def main():
     prov["lite_equals_full"] = {"checked": len(report), "mismatch": [r for r, ok in report if not ok]}
     sizes["provenance.json"] = dump(out / "provenance.json", prov)
 
+    xb = build_crossbackend(prov["cross_backend"], all_lite, cfg, report)
+    xb_path = out / "crossbackend.json"
+    if xb:
+        sizes["crossbackend.json"] = dump(xb_path, xb)
+    elif xb_path.exists():
+        xb_path.unlink()   # 이전 빌드의 잔재를 남기지 않는다 (히어로는 index.json 의 has_crossbackend 를 본다)
+
     try:
         commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or None
     except Exception:  # noqa: BLE001
@@ -302,6 +347,7 @@ def main():
     index = {"site_schema": SITE_SCHEMA, "build_version": BUILD_VERSION, "built_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
              "source_commit": commit, "scorer_version": scorer.SCORER_VERSION, "sessions": sessions_idx,
              "diversity_cohorts": div["summary"], "has_compliance": comp is not None, "has_ablation": abl.exists(),
+             "has_crossbackend": xb is not None,
              "skipped_sessions": skipped, "files": sizes}
     sizes["index.json"] = dump(out / "index.json", index)
 
@@ -315,6 +361,11 @@ def main():
     print(f"  lite==full decision_core: {len(report) - len(prov['lite_equals_full']['mismatch'])}/{len(report)}")
     print(f"  cross-backend groups: {len(prov['cross_backend'])}  identical: {sum(1 for c in prov['cross_backend'] if c['identical'])}")
     print(f"  canary checks: {len(prov['canary_checks'])}  all clear: {prov['canary_all_clear']}")
+    if xb:
+        print(f"  crossbackend.json: task {xb['task_id']} · runs {[r['run_id'] for r in xb['runs']]} · trace {xb['trace_run_id']} ({xb['trace_backend']})"
+              f" · {sizes['crossbackend.json'] / 1024:.1f} KB")
+    else:
+        print("  crossbackend.json: not written (no cross-backend group)")
     if prov["lite_equals_full"]["mismatch"]:
         print("  !! lite/full verdict mismatch:", prov["lite_equals_full"]["mismatch"]); sys.exit(2)
     if hits:

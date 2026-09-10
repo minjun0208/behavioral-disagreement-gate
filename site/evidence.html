@@ -3,6 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Evidence — Behavioral Disagreement Gate</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="app.css">
 <body>
 <div class="wrap">
@@ -59,15 +60,18 @@
     const host = q("#tab-comp");
     let comp = null; try { comp = await loadPy("data/experiments/compliance.json"); } catch (e) {}
     host.append(el("h2", {}, "Does “MUST hold” in the prompt hold?"),
-      el("p", { style: "margin:.5rem 0 1rem" }, "A confirmed example was placed in the generation prompt as a hard requirement. Each cell: how many of n generations satisfied the example (sat), and how many matched the requested reference policy on ten fixed tie inputs (ref). Satisfying an example does not identify a policy — that gap is the reason the gate asks separating questions."));
+      el("p", { style: "margin:.5rem 0 1rem" }, "A confirmed example was placed in the generation prompt as a hard requirement. Each condition has two rows: sat — how many of n generations satisfied the example; ref — how many matched the requested reference policy on ten fixed tie inputs. Satisfying an example does not identify a policy — the gap between the two rows is the reason the gate asks separating questions."));
     if (!comp) { host.append(el("div", { class: "redact-block" }, "compliance.json not built")); }
     else {
       const models = comp.models;
       const conds = Object.keys(comp.conditions).filter(c => c !== "none");
       const heat = (k, n) => { const p = n ? k / n : 0; return el("span", { class: "heat", style: `background:rgba(47,95,216,${(0.08 + 0.55 * p).toFixed(2)});color:${p > 0.55 ? "#fff" : "var(--ink)"}` }, `${k} / ${n}`); };
-      const table = el("div", { class: "scroll" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "condition"), el("th", {}, "target"), ...models.map(m => el("th", { title: m }, modelShort(m).split("-")[0])))),
-        el("tbody", {}, ...conds.map(cd => el("tr", {}, el("td", {}, cd), el("td", {}, comp.conditions[cd].target ?? "—"),
-          ...models.map(m => { const c = comp.cells[`${cd}|${m}`]; return el("td", { class: "nowrap" }, c ? el("span", {}, "sat ", heat(c.sat, c.n), " · ref ", heat(c.ref, c.n)) : el("span", { class: "unmeasured" }, "not run")); }))))));
+      // sat and ref measure different things (example satisfied vs. policy matched); one row each so the gap reads vertically.
+      const cell = (cd, m, key) => { const c = comp.cells[`${cd}|${m}`]; return el("td", { class: "nowrap" }, c ? heat(c[key], c.n) : el("span", { class: "unmeasured" }, "not run")); };
+      const table = el("div", { class: "scroll" }, el("table", { class: "pairs" }, el("thead", {}, el("tr", {}, el("th", {}, "condition"), el("th", {}, "target"), el("th", {}, ""), ...models.map(m => el("th", { title: m }, modelShort(m).split("-")[0])))),
+        el("tbody", {}, ...conds.flatMap(cd => [
+          el("tr", { class: "pair-top" }, el("td", { rowspan: "2" }, cd), el("td", { rowspan: "2" }, comp.conditions[cd].target ?? "—"), el("td", { class: "muted" }, "sat"), ...models.map(m => cell(cd, m, "sat"))),
+          el("tr", {}, el("td", { class: "muted" }, "ref"), ...models.map(m => cell(cd, m, "ref")))]))));
       host.append(el("p", { class: "fine", style: "margin:0 0 .4rem" }, "Cell shade = share of n generations (darker = larger share). Shade is a magnitude, not a grade: a high sat with a low ref is the finding, not a success."), table);
       // baseline
       const base = el("div", { class: "scroll", style: "margin-top:1rem" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "no constraint (baseline)"), el("th", {}, "convention distribution"))),

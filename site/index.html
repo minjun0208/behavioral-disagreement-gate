@@ -3,6 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Behavioral Disagreement Gate</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="app.css">
 <body>
 <div class="wrap" id="app">
@@ -28,14 +29,20 @@
     <aside>
       <span class="k">this verdict</span>
       <span class="v" id="hero-run">—</span>
+      <span class="k">trace recorded on</span>
+      <span class="v" id="hero-backend">—</span>
+      <span class="k">task</span>
+      <span class="v" id="hero-task">—</span>
       <span class="k">computed</span>
       <span class="v">in your browser, just now</span>
     </aside>
     <div>
       <h2>The verdict below was not recorded. It was computed when this page loaded.</h2>
       <p style="margin-top:.6rem">Your browser read the execution trace and scored it with a JavaScript port of the Python scorer. If the port is faithful, the hash of the decision must match the one Python produced — byte for byte.</p>
+      <p class="fine" id="hero-note"></p>
       <div class="verdict" id="hero-verdict"><div class="status muted">computing…</div></div>
-      <table id="hero-table"><tbody></tbody></table>
+      <div class="scroll-narrow"><table id="hero-table"><tbody></tbody></table></div>
+      <p class="fine mono" id="hero-summary" style="margin:.5rem 0 0"></p>
       <p class="fine" style="margin-top:.8rem">Provenance fields (timestamps, node ids, durations) are excluded from the hash by design; they differ on every run and carry no decision.</p>
     </div>
   </section>
@@ -50,7 +57,7 @@
     <div>
       <h2>Clarification sessions</h2>
       <p style="margin-top:.6rem">Each session is one task, one user, up to five rounds. Replay any of them; you can pick a different answer than the one recorded and see where the recorded path diverged.</p>
-      <table id="sessions"><thead><tr><th>session</th><th>task</th><th>generation</th><th>rounds</th><th>decisions</th><th>outcome</th></tr></thead><tbody></tbody></table>
+      <div class="scroll-narrow"><table id="sessions"><thead><tr><th>session</th><th>task</th><th>generation</th><th>rounds</th><th>decisions</th><th>outcome</th></tr></thead><tbody></tbody></table></div>
     </div>
   </section>
 
@@ -78,42 +85,46 @@
       el("td", { class: "num" }, String(s.n_decisions)), el("td", {}, s.outcome)));
   }
 
-  // hero: prefer a cross-backend group (local + sandbox identical); else first session round 1
-  const prov = await loadPy("data/provenance.json");
+  // hero: the cross-backend group exported by the build — one trace to re-score, several recorded verdicts.
+  // Reads data/index.json, data/cfg_full.json and data/crossbackend.json only. No session traversal.
   const cfg = await loadPy("data/cfg_full.json").catch(() => ({}));
-  let runId, trace, pyHash, fn = "f", rows = [];
-  const grp = (prov.cross_backend ?? []).find(g => g.identical) ?? (prov.cross_backend ?? [])[0];
-  if (grp) {
-    runId = grp.runs[0].run_id;
-    // trace for that run lives in a session or cohort file; search sessions first, then cohorts
-    for (const s of idx.sessions) {
-      const sess = await loadPy(`data/sessions/${s.session_id}.json`);
-      const rd = sess.rounds.find(r => grp.runs.some(x => x.run_id === r.run_id));
-      if (rd) { runId = rd.run_id; trace = rd.trace; pyHash = rd.verdict_python.decision_core_sha256; fn = sess.task_id; break; }
-    }
-    if (!trace) {
-      const div = await loadPy("data/experiments/diversity.json");
-      for (const c of Object.values(div.cohorts)) for (const r of c) if (grp.runs.some(x => x.run_id === r.run_id)) { runId = r.run_id; trace = r.trace; pyHash = r.decision_core_sha256; fn = r.task_id; }
-    }
-    rows = grp.runs.map(r => [r.backend, r.core]);
-  }
-  if (!trace) {
+  let runId, backend, trace, fn, rows, note;
+  const xb = idx.has_crossbackend ? await loadPy("data/crossbackend.json") : null;
+  if (xb) {
+    runId = xb.trace_run_id; backend = xb.trace_backend; trace = xb.trace; fn = xb.task_id;
+    // one row per execution environment; a backend that recorded several runs lists them all in the last column.
+    // if runs on the same backend disagree with each other, each run gets its own row instead.
+    const byBackend = new Map();
+    for (const r of xb.runs) byBackend.set(r.backend, [...(byBackend.get(r.backend) ?? []), r]);
+    rows = [...byBackend].flatMap(([b, rs]) => new Set(rs.map(r => r.decision_core_sha256)).size === 1
+      ? [[b, rs[0].decision_core_sha256, rs.map(r => r.run_id).join(" · ")]]
+      : rs.map(r => [b, r.decision_core_sha256, r.run_id]));
+    note = `The recorded rows are the same candidates, job manifest and probe seed executed on ${xb.backends.length} backends (${xb.backends.join(", ")}) and scored by Python. The trace your browser just scored was recorded on ${backend}.`;
+  } else {
+    // fallback: first round of one session — exactly one session file is fetched
     const s0 = idx.sessions.find(x => x.gen === "llm" && x.outcome === "PASS") ?? idx.sessions.find(x => x.outcome === "PASS") ?? idx.sessions[0];
     const sess = await loadPy(`data/sessions/${s0.session_id}.json`);
-    const rd = sess.rounds[0]; runId = rd.run_id; trace = rd.trace; pyHash = rd.verdict_python.decision_core_sha256; fn = sess.task_id;
-    rows = [["python scorer (recorded)", pyHash]];
+    const rd = sess.rounds[0];
+    runId = rd.run_id; trace = rd.trace; fn = sess.task_id; backend = rd.trace[0]?.backend ?? "local_subprocess";
+    rows = [[backend, rd.verdict_python.decision_core_sha256, `${rd.run_id} · python scorer, recorded`]];
+    note = "No cross-backend group in this build; the recorded row is the Python verdict for this session round.";
   }
   q("#hero-run").textContent = runId;
+  q("#hero-backend").textContent = backend;
+  q("#hero-task").textContent = fn;
+  q("#hero-note").textContent = note;
   const v = score(trace.map(({ source, ...r }) => r), cfg);
   q("#hero-verdict").replaceWith(renderVerdict(v, { fn, pyHash: null, showHash: false }));
 
   const tbody = q("#hero-table tbody");
-  const browserRow = el("tr", {}, el("td", {}, "this browser"), el("td", { class: "hash" }, ""), el("td", {}, ""));
+  const envCell = (name, runs) => el("td", { class: "nowrap" }, name, el("div", { class: "fine" }, runs));
+  const browserRow = el("tr", {}, envCell("this browser", `${runId} · scored just now`), el("td", { class: "hash" }, ""));
   tbody.append(browserRow);
-  for (const [name, core] of rows) tbody.append(el("tr", { class: "dim" }, el("td", {}, name), el("td", { class: "hash" }, core), el("td", {}, "")));
+  for (const [name, core, runs] of rows) tbody.append(el("tr", { class: "dim" }, envCell(name, runs), el("td", { class: "hash" }, core)));
   await revealHash(browserRow.children[1], v.decision_core_sha256);
   const allSame = rows.every(([, core]) => core === v.decision_core_sha256);
-  browserRow.children[2].append(el("span", { class: allSame ? "measured" : "unmeasured" }, allSame ? `identical across ${rows.length + 1} environments` : "differs — see provenance"));
+  const nEnv = new Set(rows.map(([name]) => name)).size + 1;   // recorded backends + this browser
+  q("#hero-summary").append(el("span", { class: allSame ? "measured" : "unmeasured" }, allSame ? `identical across ${nEnv} environments` : "differs — see provenance"));
 </script>
 </body>
 </html>
