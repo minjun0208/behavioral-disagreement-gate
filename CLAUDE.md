@@ -68,6 +68,9 @@
 (경계를 흐리면 "측정/미측정" 구분이 죽는다) · 프레임워크 도입 (React/Next/Tailwind — 3.5개월 무보수 유지가 조건이다) ·
 새 의존성·빌드 도구·번들러 추가.
 
+`.github/workflows/pages.yml` 은 이 금지와 충돌하지 않는다: 배포 인프라(커밋된 `site/` 를 그대로 Pages 에 올린다)이지 빌드 도구가 아니며,
+사이트는 여전히 빌드 없는 정적 파일이다. 워크플로가 `site/data` 를 다시 만들게 하지 마라.
+
 ## 변경 후 반드시 통과해야 하는 검증
 
 UI 를 고친 뒤 아래를 전부 돌리고 결과를 보고한다. 하나라도 실패하면 되돌린다.
@@ -93,6 +96,29 @@ python -m http.server 8000
 ```
 
 `site/data/` 는 `build_site_data.py` 의 산출물이다. 손으로 고치지 말고 빌드로 다시 만든다.
+
+## 배포 (GitHub Pages)
+
+`.github/workflows/pages.yml` 이 main 푸시(또는 Actions 탭의 수동 실행)마다 **커밋된 `site/` 만** 아티팩트로 올린다
+(checkout → configure-pages → upload-pages-artifact `path: site` → deploy-pages). Settings → Pages → Source 는 "GitHub Actions".
+저장소 루트를 서빙하지 않는 이유: `gold/`(정답 테스트)와 파이썬 소스가 데모 도메인에서 열리면 provenance.html 의
+"Reference tests and their inputs are not served at all" 이 거짓이 된다. 워크플로는 `site/data` 를 다시 만들지 않는다
+(빌드에는 runs/ ledger/ 실측 데이터와 API 키가 필요하다). Jekyll 은 돌지 않으므로 `.nojekyll` 은 필요 없다.
+
+배포 후 확인 (앞부분 `https://minjun0208.github.io/behavioral-disagreement-gate/`):
+
+| 경로 | 기대 |
+|---|---|
+| `/` | 200, 히어로가 "identical across 3 environments" |
+| `session.html?id=live5` | 200, 콘솔 에러 없음 |
+| `evidence.html` | 200 |
+| `provenance.html` | 200, cross-backend 해시 세 줄이 한 줄씩 |
+| `test/scorer_test.html` | 200, "80/80 runs" |
+| `gold/mean.json` | **404** — 서빙 범위가 site/ 뿐임을 증명한다 |
+| `scorer.py` | **404** — 같은 이유 |
+
+마지막 두 줄이 404 가 아니면 배포 방식이 바뀐 것이다(브랜치 루트 배포 등). 그 상태로 두지 마라.
+Pages 는 `Cache-Control: max-age=600` 을 붙이므로 재배포 후 최대 10분간 옛 JSON 이 보일 수 있다. 확인은 10분 뒤 또는 시크릿 창에서 한다.
 
 ## 파일 구조 개요
 
@@ -129,6 +155,7 @@ cfg_*.json                  게이트 설정 변형 (cfg_full 이 기본)
 tasks/ gold/                과제 정의 / 정답 테스트 (gold 는 사이트로 내보내지 않는다)
 examples/                   e2e·ablation 예시 task/answers
 runs/ ledger/ clarify/ grades/ experiments/   실측 데이터 (수정·삭제 금지, 일부는 .gitignore)
+.github/workflows/pages.yml  GitHub Pages 배포 — 커밋된 site/ 만 업로드, 빌드 없음. 배포 인프라이지 빌드 도구가 아니다.
 ```
 
 ## 지금 알려진 미해결 항목 (다음 작업 후보)

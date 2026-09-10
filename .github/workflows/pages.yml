@@ -1,0 +1,49 @@
+# GitHub Pages deploy: uploads the committed site/ directory as-is.
+#
+# Why site/ only: the repository root holds gold/ (reference tests) and the
+# Python gate. provenance.html states that reference tests and their inputs
+# are not served; publishing the repository root would make that sentence
+# false on the demo domain. Nothing outside site/ is uploaded.
+#
+# No build step, on purpose: site/data is a committed artifact of
+# build_site_data.py, which needs runs/ ledger/ (large, gitignored measured
+# data) and API keys. This workflow ships exactly what is committed.
+# It is deployment infrastructure, not a build tool; the site itself stays
+# static files with no build.
+#
+# Pages serves with "Cache-Control: max-age=600": after a redeploy, viewers
+# may see the previous JSON for up to 10 minutes.
+name: Deploy site/ to GitHub Pages
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+      - name: Upload site/ as the Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
