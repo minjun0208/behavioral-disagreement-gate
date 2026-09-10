@@ -80,7 +80,7 @@ python build_site_data.py --exclude-sessions demo1
   → "canary checks: 49  all clear: True"
 
 node site/test/scorer_test.mjs site/data
-  → "runs: N/N decision_core identical"   (현재 79/79 = 세션 라운드 21 + 코호트 run 58. 빌드의 lite==full 86/86 과는 다른 수치다)
+  → "runs: N/N decision_core identical"   (현재 80/80 = 세션 라운드 21 + 코호트 run 58 + crossbackend.json trace 1. 빌드의 lite==full 86/86 과는 다른 수치다)
 
 python -m http.server 8000
   → 아래 페이지를 브라우저로 직접 열어 콘솔 에러가 없는지 확인
@@ -111,13 +111,14 @@ site/                       공개 사이트 (정적, 빌드 없음, ES module)
   test/scorer_test.html     같은 검증의 브라우저판.
   test/scorer_test_fixture.mjs
   data/                     빌드 산출물 (build_site_data.py)
-    index.json              세션 목록
+    index.json              세션 목록, has_crossbackend
+    crossbackend.json       index.html 히어로가 읽는 cross-backend 그룹 1개 (run 별 backend·decision_core) + 브라우저가 재채점할 trace 1건. build_crossbackend() 산출.
     provenance.json         lite==full, cross_backend, canary_checks
     cfg_full.json           게이트 설정 (G2/G3/G4, normalizer)
     sessions/<sid>.json     세션별 라운드 trace + verdict_python (demo1, live1…, live5, sw_live, g4_* 등)
     experiments/            diversity.json, compliance.json, ablation.json
 
-build_site_data.py          runs/ledger/clarify/grades/experiments → site/data. leak_scan, lite==full 검증, canary 포함.
+build_site_data.py          runs/ledger/clarify/grades/experiments → site/data. leak_scan, lite==full 검증, canary, build_crossbackend() 포함.
 scorer.py …                 게이트 코어 (수정 금지 목록 2번)
 patch_v013.py               v0.12 → v0.13 패치 스크립트 (experiment_g4_ablation.py 질문 파일명, app.css 왼쪽 여백). 재실행 안전.
 conformance_contree.py      ConTree SDK(contree-sdk 0.3.6 고정) 적합성 검사 8종. SDK 버전이 바뀌면 먼저 돌린다.
@@ -132,12 +133,6 @@ runs/ ledger/ clarify/ grades/ experiments/   실측 데이터 (수정·삭제 �
 
 ## 지금 알려진 미해결 항목 (다음 작업 후보)
 
-1. `index.html` 히어로가 cross-backend 그룹(`cmp_local` ↔ `v6_contree`, 로컬과 Nebius Sandbox 에서 같은
-   판정 해시)을 찾으려고 세션 파일 10개를 전부 fetch 해서 첫 로드에 8.5MB 를 받는다. `build_site_data.py` 가 그 그룹의
-   trace 를 `data/crossbackend.json` 으로 따로 내보내고 히어로가 그것만 읽게 해야 한다.
-   사이트에서 가장 강한 증거인데 지금은 폴백 경로로 빠져 안 보인다. (빌드 스크립트 변경이 포함되므로 승인 필요)
-2. witness 표에서 후보 id 와 값 사이 간격이 과도하다 (`c1 …… -13`).
-3. 히어로 해시 64자가 `--measure` 안에서 3줄로 접힌다. 해시는 폭 제한을 풀어야 한다.
-4. built 시각이 UTC 라 헷갈린다 (로컬 시각 병기 검토).
-5. `evidence.html`, `provenance.html`, `session.html` 은 아직 시각 검토를 못 했다.
-6. `provenance.html` cross-backend 표의 첫 헤더에 task_id(`mean`)가 들어가 열 제목처럼 읽힌다. 1번과 같은 코드라 함께 고친다.
+1. witness 표에서 후보 id 와 값 사이 간격이 과도하다 (`c1 …… -13`).
+2. built 시각이 UTC 라 헷갈린다 (로컬 시각 병기 검토).
+3. `evidence.html`, `provenance.html`, `session.html` 은 아직 시각 검토를 못 했다.

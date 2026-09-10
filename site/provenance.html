@@ -55,7 +55,7 @@
   if (!p.cross_backend.length) xb.append(el("div", { class: "redact-block" }, "no cross-backend pairs in this build — run the same task on --backend local and --backend contree to populate"));
   for (const g of p.cross_backend) {
     xb.append(el("p", { class: "fine mono", style: "margin:0 0 .3rem" }, `task ${g.task_id} · ${g.runs.length} runs · `, el("span", { class: g.identical ? "measured" : "unmeasured" }, g.identical ? "identical" : "differs")),
-      el("div", { class: "scroll", style: "margin-bottom:1rem" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "run"), el("th", {}, "backend"), el("th", {}, "decision_core"))),
+      el("div", { class: "scroll-narrow", style: "margin-bottom:1rem" }, el("table", {}, el("thead", {}, el("tr", {}, el("th", {}, "run"), el("th", {}, "backend"), el("th", {}, "decision_core"))),
         el("tbody", {}, ...g.runs.map(r => el("tr", {}, el("td", {}, r.run_id), el("td", {}, r.backend), el("td", { class: "hash" }, r.core)))))));
   }
 
