@@ -43,6 +43,32 @@
   const fn = sess.task_id;
   const rounds = q("#rounds");
 
+  // --- reference block: search results shown to the person answering, after the options. Outside the verdict path. ---
+  const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+  const httpOnly = (u) => /^https?:\/\//i.test(u ?? "") ? u : null;
+  function renderReference(ref) {
+    const box = el("div", { class: "reference" },
+      el("div", { class: "fine mono" }, "reference · Tavily search · shown after the options · not read by the verdict"));
+    if (ref.status !== "ok") {
+      box.append(el("div", { style: "margin-top:.4rem" }, el("span", { class: "unmeasured" }, `reference ${ref.status}`), " ", el("span", { class: "fine" }, ref.reason ?? "")));
+      return box;
+    }
+    box.append(el("div", { class: "fine mono" }, "query: " + ref.query));
+    const ol = el("ol", { class: "refs" });
+    for (const r of ref.results ?? []) {
+      const href = httpOnly(r.url);
+      ol.append(el("li", {},
+        href ? el("a", { href, target: "_blank", rel: "noopener noreferrer" }, r.title || href) : el("span", {}, r.title || ""),
+        " ", el("span", { class: "fine mono" }, hostOf(r.url)),
+        r.content ? el("div", { class: "snippet" }, r.content) : null));
+    }
+    if (!(ref.results ?? []).length) ol.append(el("li", {}, el("span", { class: "fine" }, "no results returned")));
+    box.append(ol, el("p", { class: "fine", style: "margin:.45rem 0 0" },
+      `Fetched ${ref.fetched_at ?? "—"} via api.tavily.com` + (ref.cached ? " (served from the local cache of an earlier fetch)" : "") + (ref.request_id ? `, request ${ref.request_id}` : "") +
+      ". Search results with their sources, retrieved for the person answering. The verdict, the decision_core hash and the acceptance tests do not read them."));
+    return box;
+  }
+
   for (const rd of sess.rounds) {
     const trace = rd.trace.map(({ source, ...r }) => r);
     const cands = rd.trace.filter(r => r.kind === "candidate");
@@ -82,6 +108,7 @@
     const qBlocks = [];
     const answersByQ = {}; for (const r of sess.ledger) if (r.kind === "answer" && r.parse_error === null) answersByQ[r.question_id] = r;
     const decisionsByQ = {}; for (const r of sess.ledger) if (r.kind === "decision") decisionsByQ[r.question_id] = r;
+    const refsByQ = {}; for (const r of sess.ledger) if (r.kind === "reference") refsByQ[r.question_id] = r;
     for (const qq of rd.questions) {
       const rec = answersByQ[qq.question_id]; const dec = decisionsByQ[qq.question_id];
       const card = el("div", { class: "question" });
@@ -104,6 +131,7 @@
       }
       if (qq.extra_examples?.length) card.append(lead, meta, opts, el("div", { class: "fine mono" }, "also differs at: " + qq.extra_examples.map(e => e.call).join("  ·  ")), note);
       else card.append(lead, meta, opts, note);
+      if (refsByQ[qq.question_id]) card.append(renderReference(refsByQ[qq.question_id]));
       qBlocks.push(card);
       // spatially consistent open on first paint
       requestAnimationFrame(() => openFrom(card, vHost));
@@ -123,6 +151,7 @@
     switch (r.kind) {
       case "session_header": return `task ${r.task_id} · max_rounds ${r.max_rounds} · seed_schedule ${JSON.stringify(r.seed_schedule)} · provider ${r.provider}`;
       case "question": return `${r.question_id} · ${r.representative.call}`;
+      case "reference": return `${r.question_id} · ${r.search_provider ?? "tavily"} · ${r.status}` + (r.status === "ok" ? ` · ${r.n_results} results${r.cached ? " (cached)" : ""} · ${r.query}` : ` · ${r.reason ?? ""}`);
       case "answer": return `${r.question_id} · ${r.option_id}` + (r.raw_input !== null && r.raw_input !== undefined ? ` · raw ${JSON.stringify(r.raw_input)}` : "") + (r.parse_error ? ` · rejected: ${r.parse_error}` : "");
       case "decision": return `${r.decision_id} · ${fmtInput(fn, r.input)} → ${r.expected.kind === "value" ? r.expected.repr : "raises " + r.expected.type}`;
       case "supersede": return `${r.target_decision_id} → ${r.new_decision_id}`;
@@ -132,7 +161,7 @@
       default: return "";
     }
   };
-  for (const r of sess.ledger) lt.append(el("tr", { class: r.kind === "answer" ? "dim" : "" }, el("td", { class: "num" }, String(r.seq)), el("td", {}, r.kind), el("td", { class: "num" }, r.round ?? ""), el("td", {}, summarize(r))));
+  for (const r of sess.ledger) lt.append(el("tr", { class: (r.kind === "answer" || r.kind === "reference") ? "dim" : "" }, el("td", { class: "num" }, String(r.seq)), el("td", {}, r.kind), el("td", { class: "num" }, r.round ?? ""), el("td", {}, summarize(r))));
   const foot = sess.ledger.find(r => r.kind === "session_footer");
   q("#avh").textContent = foot?.active_view_sha256 ? short(foot.active_view_sha256, 16) : "—";
 </script>

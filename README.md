@@ -61,12 +61,25 @@ Termination: `PASS`, `MAX_ROUNDS_EXCEEDED`, `NO_PROGRESS` (same question hash ag
 
 Example, session `live5` (`round_half`, three models): round 1 witness `x = -39.5`, options `-39` / `-40`, user typed `-40`; round 2 witness `x = 8.5`, options `8` / `9`, user chose `8`; round 3 `PASS` with one candidate dropped by G4. Two decisions active at the end. [Replay it](https://minjun0208.github.io/behavioral-disagreement-gate/session.html?id=live5) and pick a different answer to see where the recorded path diverged.
 
+## Reference search (Tavily)
+
+A question like "`round_half(x=-39.5)`: `-39` or `-40`?" gives the person answering no ground to stand on. So after the question is built and before the answer is taken, `research.py` runs one Tavily search for the convention behind that disagreement and prints the results, with their URLs, under the options. The query is assembled only from the task definition (`ambiguity_axis`, `issue_text`) and the question (representative input, observed options); there is no hand-written table of search terms per axis, because that would mean the gate already knew the answer. Example query, session `ref1` round 1 (`safe_div`, fixture candidates that raise or return `None` on `b == 0`):
+
+```
+Python divides a by b: error policy convention. For a=0.0, b=0.0, raises ZeroDivisionError or None?
+```
+
+The recorded reference block is on the [ref1 session page](https://minjun0208.github.io/behavioral-disagreement-gate/session.html?id=ref1). Search parameters: `search_depth: advanced` (2 credits), 3 results, 3 chunks per source, no domain filter. They were chosen by comparing three settings on three queries on 2026-09-11; `basic` returned tutorials and off-topic pages (relevance 0.17 to 0.24), and boosting `docs.python.org` / `en.wikipedia.org` pulled in revision diffs and formula fragments. Sessions recorded before this feature (`live1` to `live5`, `sw_live`, `g4_*`) carry no `reference` record.
+
+What the search does not do: it is not read by the scorer, it is not part of `decision_core_sha256` or `question_sha256`, it does not pre-select or rank an option, and the acceptance test still comes only from the user's answer. Tavily's LLM-written `answer` field is not requested; only results that carry a URL are kept. The call and its results are appended to the ledger as a `reference` record between the `question` and the `answer`, so the sequence numbers show that the person saw the search before answering. A missing key, an HTTP error or a timeout is recorded as `status: unavailable` with the reason and the loop goes on; `--research off` is recorded as `status: off`. Responses are cached under `research_cache/` (not committed) as a convenience, not as a correctness device: a cached record says `cached: true` and keeps the original fetch time. The session page shows the block under each question, labelled as not read by the verdict, with the sources.
+
 ## Nebius stack
 
 - **Token Factory inference.** Candidates come from three models, one per slot: `nvidia/Nemotron-3-Ultra-550b-a55b`, `Qwen/Qwen3-235B-A22B-Instruct-2507`, `deepseek-ai/DeepSeek-V4-Pro`, temperature 0.8. On the toy task, three models disagreed in 5/5 runs; one model sampled three times disagreed in 1/5.
 - **ConTree sandboxes.** The runner prepares one base node (`python:3.12-slim`) and branches it per candidate and per mutant. Workers only execute; the runner is the single trace writer; the execution envelope echoes an `exec_id`, and a mismatch marks the observation `capture_ok=false`. SDK exceptions are recorded as `sandbox_error`, never disguised as results. There is no local fallback. The run header records the measured egress probe result rather than assuming isolation.
 - **Same decision on different machines.** Task `mean`, fixture candidates, probe seed 7, budget 20, executed on the local subprocess backend (`cmp_local`, `v6_local`) and in a ConTree sandbox (`v6_contree`): identical `decision_core_sha256` `b03b4dd4...8b54cf6e`. The demo re-scores the sandbox trace in the browser and gets the same hash; the command to reproduce it locally is under Results.
 - **SDK conformance.** `conformance_contree.py` exercises the 8 SDK behaviours the backend depends on (`contree-sdk` 0.3.6, pre-alpha). Run it before `--backend contree`.
+- **Tavily search (Tavily by Nebius).** One runtime search per clarification question, shown to the person answering with its sources; never read by the verdict. See [Reference search](#reference-search-tavily).
 
 ## Setup
 
@@ -76,6 +89,7 @@ Python 3.10 (tested on 3.10.11). Node.js (tested on v24) only for the JavaScript
 pip install -r requirements.txt      # pinned versions; contree-sdk==0.3.6
 export NEBIUS_API_KEY=...            # Token Factory inference (llm_gen.py) and ConTree IAM auth
 export NEBIUS_PROJECT_ID=...         # ConTree: Nebius project id, read by contree-sdk IAMAuth
+export TAVILY_API_KEY=...            # optional: reference search shown with each question (research.py). Without it the loop records "unavailable" and continues
 python conformance_contree.py        # first: must print 8/8 passed
 ```
 
@@ -117,7 +131,7 @@ python loop.py --task tasks/round_half.json --session s1_replay --gen hardcoded 
   --answers three_conventions.answers.json --quiet
 ```
 
-Outputs: `ledger/<session>/ledger.jsonl`, `clarify/<session>/round_<n>.{task,question_1,verdict}.json`, `runs/<session>_r<n>/`. `python summarize.py` prints a verdict-plus-gold table for every local run.
+Outputs: `ledger/<session>/ledger.jsonl`, `clarify/<session>/round_<n>.{task,question_1,verdict}.json`, `runs/<session>_r<n>/`. `python summarize.py` prints a verdict-plus-gold table for every local run. `--research off` skips the Tavily reference search (recorded in the ledger as `status: off`); `python research.py --selftest` checks the query builder and the failure paths without network.
 </details>
 
 <details>
@@ -145,18 +159,19 @@ Every number below is computed from files in this repository. "Reproduce" is the
 | G4 ablation, 4 constructed cases, same traces scored with G4 on and off | Case A (all candidates violate a confirmed decision the same way): G4 off gives `PASS` with three violators approved, G4 on gives `CODE_INCOMPLETE`. G4 was the only gate that caught it. B (all comply): no false block. C, D: caught by G3 and G4 alike | evidence | `python experiment_g4_ablation.py` (output identical to `experiments/g4_ablation.json`) |
 | Same decision across backends | 3 runs, 2 backends (local subprocess, ConTree), 1 hash `b03b4dd4...` | [provenance](https://minjun0208.github.io/behavioral-disagreement-gate/provenance.html) and front page | `python runner.py --task tasks/mean.json --run-id xb --gen hardcoded --backend local --probe-budget 20 && python scorer.py runs/xb/trace.jsonl cfg_full.json`; repeat with `--backend contree` |
 | Answer-key isolation | 49 canary checks, 0 hits | provenance | `python grader.py <run_id> && python canary_check.py <run_id>` |
-| Scorer fidelity | stripped trace vs full trace: 86/86 identical decision hashes; JavaScript vs Python: 80/80 in Node and [80/80 in the browser](https://minjun0208.github.io/behavioral-disagreement-gate/test/scorer_test.html) | provenance | `python build_site_data.py --exclude-sessions demo1`; `node site/test/scorer_test.mjs site/data` |
-| Live sessions | 6 LLM sessions on `round_half`: 5 `PASS` (four in 2 rounds, one in 3), 1 `UNVERIFIABLE` (`sw_live`: fewer than two distinct implementations left after G4). 4 fixture sessions from the ablation | [front page](https://minjun0208.github.io/behavioral-disagreement-gate/) | `python loop.py --gen llm ...` as above |
+| Scorer fidelity | stripped trace vs full trace: 88/88 identical decision hashes; JavaScript vs Python: 82/82 in Node and [82/82 in the browser](https://minjun0208.github.io/behavioral-disagreement-gate/test/scorer_test.html) | provenance | `python build_site_data.py --exclude-sessions demo1`; `node site/test/scorer_test.mjs site/data` |
+| Live sessions | 6 LLM sessions on `round_half`: 5 `PASS` (four in 2 rounds, one in 3), 1 `UNVERIFIABLE` (`sw_live`: fewer than two distinct implementations left after G4). 4 fixture sessions from the ablation. 1 fixture session `ref1` (`safe_div`) with a recorded Tavily reference block, `UNVERIFIABLE` after the answer left one implementation | [front page](https://minjun0208.github.io/behavioral-disagreement-gate/) | `python loop.py --gen llm ...` as above; `python loop.py --task tasks/safe_div.json --session ref1 --gen hardcoded --answers examples/safe_div_ref1.answers.json` |
 
 ## Limitations
 
-1. **Every live clarification session ran on one task, `round_half`.** Disagreement detection (G3) was measured on 8 tasks x 3 seeds = 24 runs per cohort; it is the loop itself (question, answer, acceptance test, repair) whose evidence is confined to rounding ties.
+1. **Every live LLM clarification session ran on one task, `round_half`.** Disagreement detection (G3) was measured on 8 tasks x 3 seeds = 24 runs per cohort, and one other axis (`safe_div`, error policy) went through the loop only as the scripted fixture session `ref1`; it is the live loop itself (LLM candidates, question, typed answer, acceptance test, repair) whose evidence is confined to rounding ties.
 2. **If every candidate deviates the same way, G3 is silent by construction.** G4 catches that only for behaviors that were already confirmed (ablation case A). Unconfirmed, unanimous misreadings pass.
 3. **One answer on one input does not identify a policy.** `round_half(-39.5) == -40` is consistent with away-from-zero and with half-down. The loop asks again when the next witness appears (live5 needed two rounds), and 7 of the 180 constrained compliance generations satisfied the given examples while implementing a different convention.
 4. **Tasks are 8 pure Python functions**, one prompt format, temperature 0.8 throughout. No I/O, no state, no multi-file patches.
 5. **Compliance cells are n = 10.** Differences between low counts (0/10, 1/10, 3/10) are not resolved.
 6. **G4's unique catch was shown on a constructed case.** How often unanimous regression occurs in natural sessions was not measured.
 7. **ConTree SDK is pre-alpha** (0.3.6 pinned; `conformance_contree.py` guards the 8 behaviours used). 85 of the 86 committed runs were executed on the local subprocess backend and 1 in a ConTree sandbox; the cross-backend hash identity rests on that one run.
+8. **The reference search can be wrong.** Search snippets are third-party text; a misleading result can steer the answer, and the gate cannot tell. The mitigations are procedural, not technical: every snippet is shown with its source, the block sits under the options and never selects one, and the ledger records what was shown before the answer so a decision taken on bad information can be found and superseded.
 
 <details>
 <summary>Repository layout</summary>
@@ -165,6 +180,7 @@ Every number below is computed from files in this repository. "Reproduce" is the
 runner.py  scorer.py  backends.py        the gate: execute and record / score / execution backends (local, contree)
 loop.py  ledger.py  acceptance.py        clarification loop: orchestration / append-only decision ledger / typed acceptance tests
 question.py  representative.py           deterministic question text / simplest separating witness
+research.py                              Tavily reference search shown with each question; ledger 'reference' record; outside the verdict path
 grader.py  canary_check.py  summarize.py post-hoc grading against gold/, canary isolation check, run table
 llm_gen.py  providers.py                 candidate generation via Nebius Token Factory / answer providers (cli, scripted)
 conformance_contree.py                   8 SDK behaviour checks (run first)

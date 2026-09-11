@@ -109,6 +109,14 @@ td.hash { white-space: nowrap; overflow-wrap: normal; }              /* full 64-
   .opt .note:empty { display: none; }
 }
 
+/* ---- reference (search results shown to the person answering, after the options; outside the verdict path) ---- */
+.reference { border-top: 1px solid var(--rule); margin-top: 0.9rem; padding-top: 0.6rem; }
+.reference .fine.mono { word-break: break-word; margin-top: 0.25rem; }
+.reference ol.refs { margin: 0.45rem 0 0; padding-left: 1.3rem; }
+.reference ol.refs li { margin: 0.35rem 0; }
+.reference ol.refs a { font-family: var(--serif); }
+.reference .snippet { font-family: var(--serif); font-size: 0.92rem; line-height: 1.45; margin-top: 0.1rem; }
+
 /* ---- toggles (spring-driven knob) ---- */
 .toggle { display: inline-flex; align-items: center; gap: 0.6rem; font-family: var(--mono); font-size: 0.85rem; cursor: pointer; user-select: none; }
 .toggle .track { width: 38px; height: 22px; border: 1px solid var(--ink); border-radius: 11px; position: relative; background: transparent; }

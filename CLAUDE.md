@@ -32,10 +32,38 @@
    - "정리", "현대화", "최적화", 린트 자동 수정 모두 금지.
 2. **게이트 코어 파이썬** — `scorer.py`, `runner.py`, `backends.py`, `ledger.py`, `acceptance.py`,
    `representative.py`, `question.py`, `loop.py`, `grader.py`, `canary_check.py`. UI 작업에서 손댈 일이 없다.
+   (`research.py`, `providers.py` 는 판정 경로 밖이라 이 목록에 없지만, 아래 "참고 검색 불변식" 을 지킨다.)
 3. **`build_site_data.py` 의 `leak_scan()`** — 정답 테스트(`gold/`)가 공개 사이트로 새는지 검사한다.
    빌드가 거부되면 이유가 있다. 검사를 우회하거나 완화하지 마라.
 4. **`runs/ ledger/ clarify/ grades/ experiments/`** — 실측 데이터. 재생성 비용이 크다
    (LLM 210+ 호출, 약 90분). 수정·삭제 금지. `gold/` 는 정답 테스트라 사이트로 내보내면 안 된다.
+
+## 참고 검색 (research.py, Tavily) 불변식
+
+명료화 질문이 만들어진 뒤, 답을 받기 전에, 그 불일치 축의 표준 관례를 Tavily 로 한 번 검색해 답하는 사람에게
+참고 정보로 보여준다. Best Use of Tavily 보너스상 자격("functional, runtime call to the Tavily API")을 채우지만
+장식이 아니라 제품 기능이다. 다음을 깨면 안 된다.
+
+- 검색 결과는 verdict, `decision_core_sha256`, acceptance test, `question_sha256` 에 절대 들어가지 않는다.
+  question dict 와 `clarify/*.question*.json` 에는 넣지 않는다. provider.ask 의 두 번째 인자는 `fetch_reference` callable 이고,
+  provider 가 질문을 다 보여준 다음에 부르는 시점에 실제 호출이 일어난다 (화면: "reference search via Tavily ... ok · 3 results · 3.3s").
+  한 질문에 한 번만 검색·기록되며, provider 가 안 불러도 loop 가 answer 기록 전에 불러 순서를 보장한다.
+- 선택지를 고르거나 기본값으로 제시하지 않는다. 표시 위치는 선택지 아래, 입력 프롬프트 위.
+- 질의는 `ambiguity_axis` + `issue_text` + 질문의 대표 입력·관측 선택지만으로 만든다 (`research.build_query`, 순수 함수).
+  축 이름별 검색어 표를 만들지 마라 — 정답을 미리 아는 셈이 된다. 사용자 답(raw_input)은 코드로 거부된다.
+- Tavily 의 LLM 생성 `answer` 필드는 요청하지 않는다. URL 이 없는 결과는 버린다 (캐시를 읽을 때도 다시 거른다).
+- ledger 에 `reference` 레코드로 question 다음, answer 앞에 기록한다 (seq 순서가 "답보다 먼저 보였다" 의 증거).
+  `fold()` 는 이 kind 를 무시한다 → active view 와 `active_view_sha256` 불변.
+- 키 없음·HTTP 오류·타임아웃은 예외가 아니라 `status: unavailable` + reason 이고 루프는 계속된다. `--research off` 는 `status: off` 로 남는다.
+- API 키는 어디에도 기록하지 않는다. 캐시(`research_cache/`, gitignore)는 편의 장치이지 정확성 장치가 아니다 — `cached: true` 로 표시.
+- HTTP 직접 호출(httpx, 이미 고정)이며 tavily-python 을 넣지 않는다 (tiktoken 컴파일 의존성). `requirements.txt` 불변.
+- 사이트: `session.html` 이 ledger 의 `reference` 를 질문 카드 맨 아래에 그린다. 텍스트 노드로만 그리고 http(s) 링크만 허용한다.
+  "not read by the verdict" 문구와 출처 URL 은 항상 함께 보인다. unavailable/off 는 `.unmeasured` 칩(측정하지 않음).
+- 검증: `python research.py --selftest` 가 전부 ok 여야 한다 (네트워크 없음).
+- 검색 파라미터(advanced, 3결과, 청크 3, 도메인 필터 없음)는 2026-09-11 에 3 질의 × 3 설정을 실측해 고른 값이다.
+  basic 은 튜토리얼·잡음(score 0.17~0.24), 도메인 부스트는 위키 리비전 diff·LaTeX 조각을 냈다. 바꾸려면 다시 실측해라.
+- 키는 사용자 수준 환경변수에 있다. 이 도구의 Bash 셸은 못 보고, PowerShell 에서
+  `$env:TAVILY_API_KEY = [Environment]::GetEnvironmentVariable("TAVILY_API_KEY","User")` 로 올려서 실행한다.
 
 ## 디자인 원칙 (이미 적용됨 — 유지해라)
 
@@ -78,17 +106,18 @@ UI 를 고친 뒤 아래를 전부 돌리고 결과를 보고한다. 하나라�
 
 ```
 python build_site_data.py --exclude-sessions demo1
-  → "lite==full decision_core: N/N" 에서 두 수가 같아야 한다 (현재 86/86)
+  → "lite==full decision_core: N/N" 에서 두 수가 같아야 한다 (현재 88/88 — 2026-09-11 ref1 세션 2라운드 추가)
   → "leak scan: clean"
   → "canary checks: 49  all clear: True"
 
 node site/test/scorer_test.mjs site/data
-  → "runs: N/N decision_core identical"   (현재 80/80 = 세션 라운드 21 + 코호트 run 58 + crossbackend.json trace 1. 빌드의 lite==full 86/86 과는 다른 수치다)
+  → "runs: N/N decision_core identical"   (현재 82/82 = 세션 라운드 23 + 코호트 run 58 + crossbackend.json trace 1. 빌드의 lite==full 88/88 과는 다른 수치다)
 
 python -m http.server 8000
   → 아래 페이지를 브라우저로 직접 열어 콘솔 에러가 없는지 확인
     /site/
     /site/session.html?id=live5
+    /site/session.html?id=ref1        (reference 블록이 있는 세션)
     /site/session.html?id=sw_live
     /site/evidence.html
     /site/provenance.html
@@ -113,7 +142,7 @@ python -m http.server 8000
 | `session.html?id=live5` | 200, 콘솔 에러 없음 |
 | `evidence.html` | 200 |
 | `provenance.html` | 200, cross-backend 해시 세 줄이 한 줄씩 |
-| `test/scorer_test.html` | 200, "80/80 runs" |
+| `test/scorer_test.html` | 200, "82/82 runs" |
 | `gold/mean.json` | **404** — 서빙 범위가 site/ 뿐임을 증명한다 |
 | `scorer.py` | **404** — 같은 이유 |
 
@@ -146,6 +175,7 @@ site/                       공개 사이트 (정적, 빌드 없음, ES module)
 
 build_site_data.py          runs/ledger/clarify/grades/experiments → site/data. leak_scan, lite==full 검증, canary, build_crossbackend() 포함.
 scorer.py …                 게이트 코어 (수정 금지 목록 2번)
+research.py                 Tavily 참고 검색 (질의 생성은 순수 함수, --selftest 있음). 판정 경로 밖. 위 "참고 검색 불변식".
 patch_v013.py               v0.12 → v0.13 패치 스크립트 (experiment_g4_ablation.py 질문 파일명, app.css 왼쪽 여백). 재실행 안전.
 conformance_contree.py      ConTree SDK(contree-sdk 0.3.6 고정) 적합성 검사 8종. SDK 버전이 바뀌면 먼저 돌린다.
 experiment_compliance.py    프롬프트 제약 준수 통제 실험 (7 조건 x 3 모델 x reps) → experiments/compliance_full.jsonl
@@ -163,8 +193,9 @@ runs/ ledger/ clarify/ grades/ experiments/   실측 데이터 (수정·삭제 �
 1. witness 표에서 후보 id 와 값 사이 간격이 과도하다 (`c1 …… -13`).
 2. built 시각이 UTC 라 헷갈린다 (로컬 시각 병기 검토).
 3. `evidence.html`, `provenance.html`, `session.html` 은 아직 시각 검토를 못 했다.
-4. **Tavily 통합 — 설계 제안만 (구현은 승인 후).** 게이트가 실패(NEEDS_CLARIFICATION / CODE_INCOMPLETE / UNVERIFIABLE)했을 때
-   해당 라이브러리의 changelog·known issue 를 Tavily API 로 런타임 검색해 실패 설명에 첨부한다. Best Use of Tavily 보너스상($3,000)의
-   자격 조건이 "Tavily API 를 런타임에 실제로 호출" 이다. 코어(scorer/runner/loop)는 건드리지 않는다 — 판정 이후 단계의 설명 첨부에 한정.
+4. **Tavily 통합 — 구현·실측 완료 (2026-09-11).** `ref1`(safe_div, hardcoded, 답 "raises ZeroDivisionError")이 실제 호출 기록을 갖고
+   사이트에 있다. 남은 것: 사용자가 터미널에서 돌리는 LLM 라이브 세션 `live6` (영상 촬영용). 촬영 전 `research_cache/` 를 지워야 캐시가 아닌 실제 호출이 찍힌다.
+   Rules 원문: Best Use of Tavily $3,000, "All Eligible Submissions that make a functional, runtime call to the Tavily API as part of its solution."
+   "Each Project is eligible for one (1) Overall Award OR one (1) Track Award and one (1) Bonus Award."
 5. **3분 데모 영상 — 대본과 촬영 순서.** 심사 4축이 전부 이 영상으로 전달된다. 히어로(브라우저 재채점 해시 일치) → live5 재생 → provenance 순이 후보.
 6. **Devpost 제출.** 마감 2026-10-30 10:00 PT (한국시간 10/31 02:00). 필수: 공개 repo + README(완료) + 데모 URL(완료) + 3분 영상(5번).

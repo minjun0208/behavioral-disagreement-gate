@@ -10,7 +10,10 @@ loop.py — 명료화 루프 / 오케스트레이션  (v0.1.0)
     3. runner → 새 run_id  /  scorer → verdict
     4. PASS → 종료. UNVERIFIABLE/CODE_INCOMPLETE → 종료.
     5. representative → question → question_sha256 비교 (NO_PROGRESS)
-    6. provider.ask → parse (실패 시 raw 만 기록, 재질문 최대 2회) → decision
+    5b. provider 가 질문을 보여준 뒤 fetch_reference() 를 부른다 → research.search → ledger 'reference'
+        (참고 검색. 판정·해시·acceptance 에 안 들어간다. --research off 도 기록. 한 질문에 한 번만)
+    6. provider.ask(question, fetch_reference) → parse (실패 시 raw 만 기록, 재질문 최대 2회) → decision
+       provider 가 fetch_reference 를 안 불렀어도 루프가 answer 기록 전에 부른다 → 순서 question → reference → answer 보장
     7. 활성 뷰 모순 → LEDGER_CONFLICT
 종료: PASS | MAX_ROUNDS_EXCEEDED | NO_PROGRESS | LEDGER_CONFLICT | DEFERRED | UNVERIFIABLE | CODE_INCOMPLETE
 
@@ -30,10 +33,11 @@ import acceptance
 import ledger as ledgermod
 import question as qmod
 import representative
+import research
 import scorer
 from providers import CliAnswerProvider, ScriptedAnswerProvider
 
-LOOP_VERSION = "0.2.0"
+LOOP_VERSION = "0.3.0"
 MAX_QUESTIONS_PER_ROUND = 3
 MAX_PARSE_RETRY = 2
 
@@ -115,6 +119,8 @@ def main():
     ap.add_argument("--models", default=None)
     ap.add_argument("--answers", default=None, help="scripted answers JSON (list). omit → CLI")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--research", choices=["auto", "off"], default="auto",
+                    help="Tavily reference search shown with each question. auto: needs TAVILY_API_KEY, else recorded as unavailable; off: recorded as off")
     args = ap.parse_args()
 
     task = json.load(open(args.task, encoding="utf-8"))
@@ -128,7 +134,7 @@ def main():
     schedule = ledgermod.make_seed_schedule(args.session_seed, args.max_rounds)
     L.append("session_header", task_id=task["task_id"], task_file_sha256=sha256(open(args.task, encoding="utf-8").read()),
              max_rounds=args.max_rounds, session_seed=args.session_seed, seed_schedule=schedule,
-             provider=provider.label, gen=args.gen, loop_version=LOOP_VERSION)
+             provider=provider.label, gen=args.gen, loop_version=LOOP_VERSION, research_mode=args.research)
 
     outcome, prev_qhash, final_run = None, None, None
     for r in range(1, args.max_rounds + 1):
@@ -169,9 +175,21 @@ def main():
             if qi == 0:
                 round_first_qhash = q["question_sha256"]
 
+            # 참고 검색: 질문을 보여준 뒤, 답 앞. provider 가 부르는 시점에 실제 호출이 일어난다 (화면에서 검색이 보인다).
+            # q 에는 넣지 않는다 (질문 파일·question_sha256 불변). 한 질문에 한 번만 검색·기록 (재질문에도 같은 레코드).
+            ref_box: dict = {}
+
+            def fetch_reference(q=q, r=r, ref_box=ref_box) -> dict:
+                if "rec" not in ref_box:
+                    rec = research.search(research.build_query(task, q), mode=args.research)
+                    L.append("reference", round=r, question_id=q["question_id"], question_sha256=q["question_sha256"], **rec)
+                    ref_box["rec"] = rec
+                return ref_box["rec"]
+
             expected, decided, chosen_opt = None, False, None
             for attempt in range(MAX_PARSE_RETRY + 1):
-                ans = provider.ask(q)
+                ans = provider.ask(q, fetch_reference)
+                fetch_reference()   # provider 가 건너뛰었어도 answer 레코드 전에 reference 가 기록된다
                 expected, perr = answer_to_expected(q, ans)
                 L.append("answer", round=r, question_id=q["question_id"], option_id=ans["option_id"],
                          answer_kind=(expected or {}).get("kind", "unknown"), raw_input=ans.get("raw_input"),

@@ -3,6 +3,7 @@ grades/
 verdicts/
 ledger/
 clarify/
+research_cache/
 runs_v1/
 __pycache__/
 *.pyc

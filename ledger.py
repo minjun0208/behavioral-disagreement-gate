@@ -10,6 +10,7 @@ ledger.py — 명료화 루프 / append-only 결정 원장  (v0.1.0)
   supersede       기존 decision 을 새 expected 로 대체
   revoke          decision 무효화
   defer           답 보류
+  reference       질문 직후·답 이전의 참고 검색 결과 (research.py). 판정 경로 밖 — fold 는 무시한다
   session_footer  종료
 
 순수 함수 (시간·난수·IO 없음):
@@ -25,8 +26,8 @@ import json
 import pathlib
 import random
 
-LEDGER_VERSION = "0.1.1"
-KINDS = ("session_header", "question", "answer", "decision", "supersede", "revoke", "defer", "session_footer")
+LEDGER_VERSION = "0.1.2"
+KINDS = ("session_header", "question", "reference", "answer", "decision", "supersede", "revoke", "defer", "session_footer")
 
 
 def canon(obj) -> str:
