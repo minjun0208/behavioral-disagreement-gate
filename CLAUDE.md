@@ -163,3 +163,8 @@ runs/ ledger/ clarify/ grades/ experiments/   실측 데이터 (수정·삭제 �
 1. witness 표에서 후보 id 와 값 사이 간격이 과도하다 (`c1 …… -13`).
 2. built 시각이 UTC 라 헷갈린다 (로컬 시각 병기 검토).
 3. `evidence.html`, `provenance.html`, `session.html` 은 아직 시각 검토를 못 했다.
+4. **Tavily 통합 — 설계 제안만 (구현은 승인 후).** 게이트가 실패(NEEDS_CLARIFICATION / CODE_INCOMPLETE / UNVERIFIABLE)했을 때
+   해당 라이브러리의 changelog·known issue 를 Tavily API 로 런타임 검색해 실패 설명에 첨부한다. Best Use of Tavily 보너스상($3,000)의
+   자격 조건이 "Tavily API 를 런타임에 실제로 호출" 이다. 코어(scorer/runner/loop)는 건드리지 않는다 — 판정 이후 단계의 설명 첨부에 한정.
+5. **3분 데모 영상 — 대본과 촬영 순서.** 심사 4축이 전부 이 영상으로 전달된다. 히어로(브라우저 재채점 해시 일치) → live5 재생 → provenance 순이 후보.
+6. **Devpost 제출.** 마감 2026-10-30 10:00 PT (한국시간 10/31 02:00). 필수: 공개 repo + README(완료) + 데모 URL(완료) + 3분 영상(5번).
