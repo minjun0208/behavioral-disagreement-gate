@@ -23,7 +23,7 @@
 ## 절대 건드리지 마라 (승인 없이 수정 금지)
 
 1. **`site/scorer.js`** — `scorer.py` 의 JS 이식본. `decision_core_sha256` 가 Python 과 바이트 단위로
-   일치해야 하며, 현재 86/86 해시 일치가 검증되어 있다. 다음 중 하나라도 깨지면 프로젝트의 핵심 주장이 무너진다.
+   일치해야 하며, 현재 84/84 (node scorer_test) 해시 일치가 검증되어 있다. 다음 중 하나라도 깨지면 프로젝트의 핵심 주장이 무너진다.
    - Python `json.dumps(sort_keys=True, separators=(",",":"), ensure_ascii=False)` 재현
    - Python `repr(float)`: `2.0 → "2.0"`, `1e-9 → "1e-09"`, `1e16 → "1e+16"`, `-0.0 → "-0.0"`
    - Python `round()` = ties-to-even (JS `Math.round` 와 다르다)
@@ -106,18 +106,19 @@ UI 를 고친 뒤 아래를 전부 돌리고 결과를 보고한다. 하나라�
 
 ```
 python build_site_data.py --exclude-sessions demo1
-  → "lite==full decision_core: N/N" 에서 두 수가 같아야 한다 (현재 88/88 — 2026-09-11 ref1 세션 2라운드 추가)
+  → "lite==full decision_core: N/N" 에서 두 수가 같아야 한다 (현재 90/90 — 2026-09-11 ref1·live7 세션 각 2라운드 추가)
   → "leak scan: clean"
   → "canary checks: 49  all clear: True"
 
 node site/test/scorer_test.mjs site/data
-  → "runs: N/N decision_core identical"   (현재 82/82 = 세션 라운드 23 + 코호트 run 58 + crossbackend.json trace 1. 빌드의 lite==full 88/88 과는 다른 수치다)
+  → "runs: N/N decision_core identical"   (현재 84/84 = 세션 라운드 25 + 코호트 run 58 + crossbackend.json trace 1. 빌드의 lite==full 90/90 과는 다른 수치다)
 
 python -m http.server 8000
   → 아래 페이지를 브라우저로 직접 열어 콘솔 에러가 없는지 확인
     /site/
     /site/session.html?id=live5
-    /site/session.html?id=ref1        (reference 블록이 있는 세션)
+    /site/session.html?id=live7       (데모 영상의 세션 — 영상과 내용이 같아야 한다)
+    /site/session.html?id=ref1        (reference 블록이 있는 스크립트 세션)
     /site/session.html?id=sw_live
     /site/evidence.html
     /site/provenance.html
@@ -142,7 +143,7 @@ python -m http.server 8000
 | `session.html?id=live5` | 200, 콘솔 에러 없음 |
 | `evidence.html` | 200 |
 | `provenance.html` | 200, cross-backend 해시 세 줄이 한 줄씩 |
-| `test/scorer_test.html` | 200, "82/82 runs" |
+| `test/scorer_test.html` | 200, "84/84 runs" |
 | `gold/mean.json` | **404** — 서빙 범위가 site/ 뿐임을 증명한다 |
 | `scorer.py` | **404** — 같은 이유 |
 
@@ -193,9 +194,11 @@ runs/ ledger/ clarify/ grades/ experiments/   실측 데이터 (수정·삭제 �
 1. witness 표에서 후보 id 와 값 사이 간격이 과도하다 (`c1 …… -13`).
 2. built 시각이 UTC 라 헷갈린다 (로컬 시각 병기 검토).
 3. `evidence.html`, `provenance.html`, `session.html` 은 아직 시각 검토를 못 했다.
-4. **Tavily 통합 — 구현·실측 완료 (2026-09-11).** `ref1`(safe_div, hardcoded, 답 "raises ZeroDivisionError")이 실제 호출 기록을 갖고
-   사이트에 있다. 남은 것: 사용자가 터미널에서 돌리는 LLM 라이브 세션 `live6` (영상 촬영용). 촬영 전 `research_cache/` 를 지워야 캐시가 아닌 실제 호출이 찍힌다.
+4. **Tavily 통합 — 완료 (2026-09-11).** `ref1`(safe_div, 스크립트)과 `live7`(round_half, LLM 3종, 영상 테이크: witness x=-12.5, 답 -13, 2라운드 PASS)이
+   실제 호출 기록을 갖고 사이트에 있다. 같은 세션 id 로 loop.py 를 다시 돌리면 ledger 가 이어지고 runs/<sid>_r1 이 덮어써진다(live6 오염 사고).
+   제안된 가드(기존 세션 id 거부, header 중복 세션 빌드 거부)는 승인 대기.
    Rules 원문: Best Use of Tavily $3,000, "All Eligible Submissions that make a functional, runtime call to the Tavily API as part of its solution."
    "Each Project is eligible for one (1) Overall Award OR one (1) Track Award and one (1) Bonus Award."
-5. **3분 데모 영상 — 대본과 촬영 순서.** 심사 4축이 전부 이 영상으로 전달된다. 히어로(브라우저 재채점 해시 일치) → live5 재생 → provenance 순이 후보.
+5. **데모 영상 — 촬영 완료, 편집·TTS 남음.** 대본 v3 와 편집 지침·TTS 텍스트는 `C:\nebius\bdg_video\` (script_v3.md, video_script_tts.txt).
+   규정: 3분 미만("less than three (3) minutes"), 공개 YouTube, 오디오 의무 없음, 제3자 상표·음악 금지. 터미널 테이크는 live7 (54.7 s, 3840x2160).
 6. **Devpost 제출.** 마감 2026-10-30 10:00 PT (한국시간 10/31 02:00). 필수: 공개 repo + README(완료) + 데모 URL(완료) + 3분 영상(5번).
