@@ -80,6 +80,7 @@
       el("span", { class: "k" }, "round"), el("span", { class: "v" }, String(rd.round)),
       el("span", { class: "k" }, "run"), el("span", { class: "v" }, rd.run_id),
       el("span", { class: "k" }, "probe seed"), el("span", { class: "v" }, String(rd.probe_seed), " ", el("span", { class: "muted" }, "fixed before the answer")),
+      el("span", { class: "k" }, "executed on"), el("span", { class: "v" }, `${rd.trace[0]?.backend ?? "local_subprocess"}` + (rd.trace[0]?.execution_env && rd.trace[0].execution_env !== rd.trace[0].backend ? ` · ${rd.trace[0].execution_env}` : "")),
       el("span", { class: "k" }, "acceptance tests"), el("span", { class: "v" }, String(rd.acceptance_tests.length)),
       el("span", { class: "k" }, "python verdict"), el("span", { class: "v" }, rd.verdict_python.status),
       el("span", { class: "k" }, "lite = full"), el("span", { class: "v" }, rd.lite_matches_full ? "yes" : "no"));
@@ -149,7 +150,7 @@
   const lt = q("#ledger tbody");
   const summarize = (r) => {
     switch (r.kind) {
-      case "session_header": return `task ${r.task_id} · max_rounds ${r.max_rounds} · seed_schedule ${JSON.stringify(r.seed_schedule)} · provider ${r.provider}`;
+      case "session_header": return `task ${r.task_id} · max_rounds ${r.max_rounds} · seed_schedule ${JSON.stringify(r.seed_schedule)} · provider ${r.provider}` + (r.backend ? ` · backend ${r.backend}` : "");
       case "question": return `${r.question_id} · ${r.representative.call}`;
       case "reference": return `${r.question_id} · ${r.search_provider ?? "tavily"} · ${r.status}` + (r.status === "ok" ? ` · ${r.n_results} results${r.cached ? " (cached)" : ""} · ${r.query}` : ` · ${r.reason ?? ""}`);
       case "answer": return `${r.question_id} · ${r.option_id}` + (r.raw_input !== null && r.raw_input !== undefined ? ` · raw ${JSON.stringify(r.raw_input)}` : "") + (r.parse_error ? ` · rejected: ${r.parse_error}` : "");

@@ -17,8 +17,13 @@ loop.py — 명료화 루프 / 오케스트레이션  (v0.1.0)
     7. 활성 뷰 모순 → LEDGER_CONFLICT
 종료: PASS | MAX_ROUNDS_EXCEEDED | NO_PROGRESS | LEDGER_CONFLICT | DEFERRED | UNVERIFIABLE | CODE_INCOMPLETE
 
+재실행 가드: 같은 --session 으로 다시 돌리면 ledger 가 이어지고 runs/<sid>_r1 이 덮어써진다 (2026-09-11 live6 사고).
+  ledger/<sid>, clarify/<sid>, runs/<sid>_r1 중 하나라도 있으면 exit 2 로 거부한다.
+  --resume 은 footer 가 없는(끝나지 않은) 세션만 이어 돌린다: 기존 header 의 seed_schedule·max_rounds 를 쓰고,
+  verdict 파일이 있는 마지막 라운드 다음부터 시작하며 header 를 다시 쓰지 않는다. 끝난 세션은 --resume 으로도 거부한다.
+
 산출물:
-  ledger/<session>/ledger.jsonl
+  ledger/<session>/ledger.jsonl   (session_header 에 backend / workers / image 기록)
   clarify/<session>/round_<n>.task.json / .question.json / .verdict.json
   runs/<session>_r<n>/   (라운드마다 1개)
 """
@@ -37,7 +42,7 @@ import research
 import scorer
 from providers import CliAnswerProvider, ScriptedAnswerProvider
 
-LOOP_VERSION = "0.3.0"
+LOOP_VERSION = "0.3.2"
 MAX_QUESTIONS_PER_ROUND = 3
 MAX_PARSE_RETRY = 2
 
@@ -70,7 +75,10 @@ def build_round_task(task: dict, active: dict, round_no: int) -> dict:
 def run_round(task_path: pathlib.Path, run_id: str, probe_seed: int, args) -> tuple[list, dict]:
     cmd = [sys.executable, "runner.py", "--task", str(task_path), "--run-id", run_id,
            "--probe-seed", str(probe_seed), "--probe-budget", str(args.probe_budget),
-           "--repeats", str(args.repeats), "--gen", args.gen]
+           "--repeats", str(args.repeats), "--gen", args.gen,
+           "--backend", args.backend, "--image", args.image]        # 실행 백엔드를 runner 에 그대로 전달 (기본 local)
+    if args.workers is not None:
+        cmd += ["--workers", str(args.workers)]
     if args.gen == "llm":
         cmd += ["--n-candidates", str(args.n_candidates), "--temperature", str(args.temperature),
                 "--gen-seed", str(args.gen_seed)]
@@ -119,6 +127,10 @@ def main():
     ap.add_argument("--models", default=None)
     ap.add_argument("--answers", default=None, help="scripted answers JSON (list). omit → CLI")
     ap.add_argument("--quiet", action="store_true")
+    ap.add_argument("--backend", choices=["local", "contree"], default="local", help="runner 실행 백엔드. contree 는 NEBIUS_API_KEY / NEBIUS_PROJECT_ID 필요")
+    ap.add_argument("--workers", type=int, default=None, help="runner 워커 수 (local 기본 4, contree 기본 8)")
+    ap.add_argument("--image", default="python:3.12-slim", help="contree base image tag")
+    ap.add_argument("--resume", action="store_true", help="끝나지 않은 기존 세션을 다음 라운드부터 이어 돌린다 (끝난 세션은 거부)")
     ap.add_argument("--research", choices=["auto", "off"], default="auto",
                     help="Tavily reference search shown with each question. auto: needs TAVILY_API_KEY, else recorded as unavailable; off: recorded as off")
     args = ap.parse_args()
@@ -130,14 +142,37 @@ def main():
     provider = ScriptedAnswerProvider(json.load(open(args.answers, encoding="utf-8")), echo=not args.quiet) \
         if args.answers else CliAnswerProvider()
 
-    L = ledgermod.Ledger(pathlib.Path("ledger") / sid / "ledger.jsonl", sid)
-    schedule = ledgermod.make_seed_schedule(args.session_seed, args.max_rounds)
-    L.append("session_header", task_id=task["task_id"], task_file_sha256=sha256(open(args.task, encoding="utf-8").read()),
-             max_rounds=args.max_rounds, session_seed=args.session_seed, seed_schedule=schedule,
-             provider=provider.label, gen=args.gen, loop_version=LOOP_VERSION, research_mode=args.research)
+    # ── 재실행 가드 (docstring 참조) ──
+    lpath = pathlib.Path("ledger") / sid / "ledger.jsonl"
+    existing = [str(p) for p in (lpath, pathlib.Path("runs") / f"{sid}_r1") if p.exists()] + ([str(cdir)] if any(cdir.iterdir()) else [])
+    start_round, prev_qhash, max_rounds = 1, None, args.max_rounds
+    if existing:
+        prior = ledgermod.Ledger(lpath, sid) if lpath.exists() else None
+        finished = prior is not None and any(rec["kind"] == "session_footer" for rec in prior.records)
+        if not args.resume or prior is None or finished:
+            why = "it is finished" if finished else ("its ledger is missing" if prior is None else "pass --resume to continue an unfinished session")
+            print(f"refusing to start session '{sid}': it already exists ({', '.join(existing)}); {why}. "
+                  f"Re-running would append to the ledger and overwrite runs/{sid}_r1. Use a new --session id.", file=sys.stderr)
+            sys.exit(2)
+        header = next(rec for rec in prior.records if rec["kind"] == "session_header")
+        schedule, max_rounds = header["seed_schedule"], header["max_rounds"]
+        done = [int(p.name.split("_")[1].split(".")[0]) for p in cdir.glob("round_*.verdict.json")]
+        start_round = (max(done) if done else 0) + 1
+        firsts = [rec for rec in prior.records if rec["kind"] == "question" and rec.get("followup_index", 0) == 0]
+        prev_qhash = firsts[-1]["question_sha256"] if firsts else None
+        L = prior
+        print(f"resuming session '{sid}' at round {start_round} of {max_rounds} (seed schedule and max_rounds from the existing header)")
+    else:
+        L = ledgermod.Ledger(lpath, sid)
+        schedule = ledgermod.make_seed_schedule(args.session_seed, args.max_rounds)
+        L.append("session_header", task_id=task["task_id"], task_file_sha256=sha256(open(args.task, encoding="utf-8").read()),
+                 max_rounds=args.max_rounds, session_seed=args.session_seed, seed_schedule=schedule,
+                 provider=provider.label, gen=args.gen, loop_version=LOOP_VERSION, research_mode=args.research,
+                 backend=args.backend, workers=args.workers, image=args.image)
 
-    outcome, prev_qhash, final_run = None, None, None
-    for r in range(1, args.max_rounds + 1):
+    outcome, final_run = None, None
+    r = start_round
+    for r in range(start_round, max_rounds + 1):
         view = L.view()
         if view["conflicts"]:
             outcome = "LEDGER_CONFLICT"; break

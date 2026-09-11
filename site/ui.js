@@ -118,7 +118,7 @@ export function renderVerdict(v, { fn = "f", pyHash = null, showHash = true } = 
   const dl = el("dl");
   const add = (k, val, cls) => { dl.append(el("dt", {}, k), el("dd", { class: cls ?? "" }, val)); };
   if (v.g3_search) {
-    add("searched", el("span", { class: "measured" }, `${v.g3_search.domain ?? "?"}`));
+    add("sampled domain", el("span", { class: "measured" }, `${v.g3_search.domain ?? "?"}`, ` · ${v.g3_search.n_valid_probes} probes checked`));
     add("valid probes", `${v.g3_search.n_valid_probes} · candidates ${v.g3_search.n_eff_candidates} · channel ${(v.g3_search.observation_channels ?? []).join(", ")}`);
     add("outside range", el("span", { class: "unmeasured" }, "not searched"));
   }

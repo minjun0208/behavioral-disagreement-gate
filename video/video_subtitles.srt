@@ -1,0 +1,67 @@
+1
+00:00:00,000 --> 00:00:14,136
+A coding agent writes a patch, runs its tests, and says "done". But the issue never said whether round_half(x=-12.5) is -12 or -13, and the tests never asked.
+
+2
+00:00:14,136 --> 00:00:28,176
+The Behavioral Disagreement Gate asks three models for patches through Nebius Token Factory, runs them on the same inputs in isolated ConTree sandboxes, and withholds approval while any two disagree.
+
+3
+00:00:28,176 --> 00:00:44,424
+A live session. Each candidate is one chat completion to Token Factory's OpenAI-compatible endpoint: NVIDIA Nemotron-3 Ultra, Qwen3, DeepSeek-V4, temperature 0.8, fixed seed per slot.
+
+4
+00:00:44,424 --> 00:00:56,976
+Round 1: the candidates disagree at round_half(x=-12.5): -12 or -13. No model names, no vote counts, always "not sure".
+
+5
+00:00:56,976 --> 00:01:09,048
+Before answering, one runtime call to Tavily, Nebius's search API, for the convention behind this disagreement. Sources shown, never read by the verdict.
+
+6
+00:01:09,048 --> 00:01:16,656
+I choose o2, -13. The answer becomes a ledger decision and an acceptance test.
+
+7
+00:01:16,656 --> 00:01:24,744
+Round 2: one candidate still violates that test and is dropped by the regression gate. PASS.
+
+8
+00:01:24,744 --> 00:01:32,688
+On the public site, the browser re-scores the recorded trace and prints the same decision_core hash as Python.
+
+9
+00:01:32,688 --> 00:01:40,632
+The Tavily block is labelled "not read by the verdict"; in the ledger it sits between question and answer.
+
+10
+00:01:40,632 --> 00:01:50,544
+Round 2 on the site: PASS, with one candidate dropped. All 84 committed runs re-score identically in the browser: 84/84.
+
+11
+00:01:50,544 --> 00:02:00,048
+Same candidates, same seed, local subprocess and Nebius ConTree sandbox: three runs, one decision hash.
+
+12
+00:02:00,048 --> 00:02:08,496
+If every candidate violates a past decision the same way, they agree, and the disagreement gate is silent.
+
+13
+00:02:08,496 --> 00:02:15,864
+Regression gate G4 off: case A passes with three violators approved.
+
+14
+00:02:15,864 --> 00:02:21,864
+G4 on: CODE_INCOMPLETE. Only the ledger catches this.
+
+15
+00:02:21,864 --> 00:02:28,176
+PASS means no counterexample in the searched range; what was not searched is grey.
+
+16
+00:02:28,176 --> 00:02:38,928
+The limits are stated: eight pure Python functions, live sessions on one task, a pre-alpha sandbox SDK, a search that can be wrong.
+
+17
+00:02:38,928 --> 00:02:46,536
+Code, data and the demo are public. When candidates disagree, ask; never guess.

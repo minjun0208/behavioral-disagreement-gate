@@ -106,18 +106,19 @@ UI 를 고친 뒤 아래를 전부 돌리고 결과를 보고한다. 하나라�
 
 ```
 python build_site_data.py --exclude-sessions demo1
-  → "lite==full decision_core: N/N" 에서 두 수가 같아야 한다 (현재 90/90 — 2026-09-11 ref1·live7 세션 각 2라운드 추가)
+  → "lite==full decision_core: N/N" 에서 두 수가 같아야 한다 (현재 100/100 — 2026-09-12 ConTree 세션 5개(ctree_e2e, ctree_e2e_local, ctree_llm1~3) 추가)
   → "leak scan: clean"
   → "canary checks: 49  all clear: True"
 
 node site/test/scorer_test.mjs site/data
-  → "runs: N/N decision_core identical"   (현재 84/84 = 세션 라운드 25 + 코호트 run 58 + crossbackend.json trace 1. 빌드의 lite==full 90/90 과는 다른 수치다)
+  → "runs: N/N decision_core identical"   (현재 94/94 = 세션 라운드 35 + 코호트 run 58 + crossbackend.json trace 1. 빌드의 lite==full 100/100 과는 다른 수치다)
 
 python -m http.server 8000
   → 아래 페이지를 브라우저로 직접 열어 콘솔 에러가 없는지 확인
     /site/
     /site/session.html?id=live5
     /site/session.html?id=live7       (데모 영상의 세션 — 영상과 내용이 같아야 한다)
+    /site/session.html?id=ctree_llm1  (ConTree 에서 돈 LLM 세션 — aside 의 "executed on" 이 contree · contree_sandbox)
     /site/session.html?id=ref1        (reference 블록이 있는 스크립트 세션)
     /site/session.html?id=sw_live
     /site/evidence.html
@@ -142,8 +143,8 @@ python -m http.server 8000
 | `/` | 200, 히어로가 "identical across 3 environments" |
 | `session.html?id=live5` | 200, 콘솔 에러 없음 |
 | `evidence.html` | 200 |
-| `provenance.html` | 200, cross-backend 해시 세 줄이 한 줄씩 |
-| `test/scorer_test.html` | 200, "84/84 runs" |
+| `provenance.html` | 200, cross-backend 그룹 4개 (mean 3 run, percent_change 라운드 1·2 각 2 run, live7_r2 vs ctree_llm2_r2) 전부 identical |
+| `test/scorer_test.html` | 200, "94/94 runs" |
 | `gold/mean.json` | **404** — 서빙 범위가 site/ 뿐임을 증명한다 |
 | `scorer.py` | **404** — 같은 이유 |
 
@@ -194,6 +195,9 @@ runs/ ledger/ clarify/ grades/ experiments/   실측 데이터 (수정·삭제 �
 1. witness 표에서 후보 id 와 값 사이 간격이 과도하다 (`c1 …… -13`).
 2. built 시각이 UTC 라 헷갈린다 (로컬 시각 병기 검토).
 3. `evidence.html`, `provenance.html`, `session.html` 은 아직 시각 검토를 못 했다.
+0. **loop.py 백엔드 전달·재실행 가드 (2026-09-12).** loop.py 가 `--backend/--workers/--image` 를 runner 에 넘긴다 (전에는 항상 local — GPT 검수가 찾은 결함).
+   session_header 에 backend 를 기록하고 session.html 이 라운드별 "executed on" 을 보인다. 같은 --session 재실행은 exit 2 로 거부, `--resume` 은 끝나지 않은 세션만.
+   ConTree LLM 세션 3/3 PASS(331~332 s, sandbox_error 0), 기존 28 라운드 판정 불변.
 4. **Tavily 통합 — 완료 (2026-09-11).** `ref1`(safe_div, 스크립트)과 `live7`(round_half, LLM 3종, 영상 테이크: witness x=-12.5, 답 -13, 2라운드 PASS)이
    실제 호출 기록을 갖고 사이트에 있다. 같은 세션 id 로 loop.py 를 다시 돌리면 ledger 가 이어지고 runs/<sid>_r1 이 덮어써진다(live6 오염 사고).
    제안된 가드(기존 세션 id 거부, header 중복 세션 빌드 거부)는 승인 대기.

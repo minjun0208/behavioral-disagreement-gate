@@ -13,3 +13,6 @@ __pycache__/
 par_test.py
 speed_test.py
 probe_test.py
+video/work/
+video/tts/
+video/*.mp4

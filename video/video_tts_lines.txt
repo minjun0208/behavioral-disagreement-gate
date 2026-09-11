@@ -1,0 +1,19 @@
+# BDG demo video — TTS script (Andrew, rate -4%). One line per subtitle cue; line N here is cue N in video_subtitles.srt.
+# Spelled out for speech: symbols, code and abbreviations are written the way they should be read.
+A coding agent writes a patch, runs its tests, and says: done. But the issue never said whether round half of minus twelve point five is minus twelve or minus thirteen, and the tests never asked.
+The Behavioral Disagreement Gate asks three models for patches through Nebius Token Factory, runs them on the same inputs in isolated ConTree sandboxes, and withholds approval while any two disagree.
+A live session. Each candidate is one chat completion to Token Factory's OpenAI-compatible endpoint: NVIDIA Nemotron 3 Ultra, Qwen 3, DeepSeek V4, temperature zero point eight, fixed seed per slot.
+Round one: the candidates disagree at round half of minus twelve point five: minus twelve, or minus thirteen. No model names, no vote counts, always not sure.
+Before answering, one runtime call to Tavily, Nebius's search API, for the convention behind this disagreement. Sources shown, never read by the verdict.
+I choose option two, minus thirteen. The answer becomes a ledger decision and an acceptance test.
+Round two: one candidate still violates that test and is dropped by the regression gate. Pass.
+On the public site, the browser re-scores the recorded trace and prints the same decision hash as Python.
+The Tavily block is labelled not read by the verdict; in the ledger it sits between question and answer.
+Round two on the site: pass, with one candidate dropped. All eighty-four committed runs re-score identically in the browser.
+Same candidates, same seed, local subprocess and Nebius ConTree sandbox: three runs, one decision hash.
+If every candidate violates a past decision the same way, they agree, and the disagreement gate is silent.
+Regression gate, gate four, off: case A passes with three violators approved.
+Gate four on: code incomplete. Only the ledger catches this.
+Pass means no counterexample in the searched range; what was not searched is grey.
+The limits are stated: eight pure Python functions, live sessions on one task, a pre-alpha sandbox SDK, a search that can be wrong.
+Code, data and the demo are public. When candidates disagree, ask. Never guess.
